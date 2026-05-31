@@ -7,3 +7,6 @@ out/
 
 # Local agent/SDD tooling (not part of the product)
 .atl/
+
+# Runtime artifact auto-installed by the VibeLens extension into the workspace
+.cursor/rules/vibelens.mdc
