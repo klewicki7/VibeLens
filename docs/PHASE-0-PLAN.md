@@ -75,15 +75,15 @@ equivalentes a los de Claude Code. El enforcement multi-editor es viable en ambo
 - [ ] EditorAdapter (Cursor/VS Code) con MCPStrategy enum (Pilar A)
 
 ### Slice 4 — Enforcement multi-editor (el "wow")
-- [ ] Hook `afterFileEdit` para Cursor (`~/.cursor/hooks.json`)
-- [ ] Hook `PostToolUse` para Claude Code (`settings.json`)
-- [ ] Skill `vibelens-explain-changes` (SKILL.md con frontmatter + Trigger)
-- [ ] Regla en AGENTS.md/CLAUDE.md como fallback universal
-- [ ] Instalación automática (idempotente) de hooks + skill al activar la extensión
+- [x] Hook `afterFileEdit` para Cursor (`~/.cursor/hooks.json`)
+- [x] Hook `PostToolUse` para Claude Code (`settings.json`)
+- [x] Skill `vibelens-explain-changes` (SKILL.md con frontmatter + Trigger)
+- [x] Regla en AGENTS.md/CLAUDE.md como fallback universal
+- [x] Instalación automática (idempotente) de hooks + skill al activar la extensión
 
 ### Slice 5 — Historial navegable (yapa del MVP)
-- [ ] Vista de historial de reviews en el webview (leyendo la DB)
-- [ ] Navegación entre reviews pasados por proyecto/commit
+- [x] Vista de historial de reviews en el webview (leyendo la DB)
+- [x] Navegación entre reviews pasados por proyecto/commit
 
 ---
 
