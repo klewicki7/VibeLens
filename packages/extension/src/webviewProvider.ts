@@ -6,7 +6,6 @@ export class DiffExplanationPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private _disposables: vscode.Disposable[] = [];
-  private _currentEditor: string = "cursor";
 
   public static createOrShow(
     extensionUri: vscode.Uri,
@@ -23,7 +22,7 @@ export class DiffExplanationPanel {
     }
 
     const panel = vscode.window.createWebviewPanel(
-      "explainChanges",
+      "vibelens",
       data.title,
       column || vscode.ViewColumn.One,
       {
@@ -60,7 +59,6 @@ export class DiffExplanationPanel {
   }
 
   private _handleMessage(message: { command: string; [key: string]: unknown }) {
-    console.log("Received message from webview:", message.command);
     switch (message.command) {
       case "openFile":
         const filePath = message.file as string;
@@ -69,7 +67,6 @@ export class DiffExplanationPanel {
         break;
       case "executeAction":
         const prompt = message.prompt as string;
-        console.log("executeAction received, prompt length:", prompt?.length);
         this._executeAction(prompt);
         break;
     }
@@ -110,7 +107,6 @@ export class DiffExplanationPanel {
 
   private _update(data: DiffExplanation) {
     this._panel.title = data.title;
-    this._currentEditor = data.editor || "cursor";
     this._panel.webview.html = this._getHtmlContent(data);
   }
 
@@ -391,7 +387,7 @@ export class DiffExplanationPanel {
   </div>
 
   <footer class="footer">
-    <p class="footer-text">Explain Changes</p>
+    <p class="footer-text">VibeLens</p>
   </footer>
 
   <script>
@@ -606,29 +602,19 @@ export class DiffExplanationPanel {
     }
 
     function executeAction(prompt) {
-      console.log('executeAction called with prompt:', prompt.substring(0, 100));
       vscode.postMessage({ command: 'executeAction', prompt: prompt });
     }
 
     // Event delegation for action buttons
     document.addEventListener('click', (e) => {
-      console.log('Click event:', e.target);
       const btn = e.target.closest('.action-btn');
-      console.log('Found button:', btn);
-      if (btn) {
-        console.log('Button dataset:', btn.dataset);
-        if (btn.dataset.prompt) {
-          try {
-            const decoded = atob(btn.dataset.prompt);
-            console.log('Decoded base64:', decoded.substring(0, 50));
-            const prompt = decodeURIComponent(decoded);
-            console.log('Final prompt:', prompt.substring(0, 100));
-            executeAction(prompt);
-          } catch (err) {
-            console.error('Error decoding prompt:', err);
-          }
-        } else {
-          console.log('No data-prompt on button');
+      if (btn && btn.dataset.prompt) {
+        try {
+          const decoded = atob(btn.dataset.prompt);
+          const prompt = decodeURIComponent(decoded);
+          executeAction(prompt);
+        } catch (err) {
+          console.error('Error decoding prompt:', err);
         }
       }
     });

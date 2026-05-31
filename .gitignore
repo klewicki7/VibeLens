@@ -1,4 +1,9 @@
 node_modules/
 dist/
+out/
+*.vsix
 *.log
 .DS_Store
+
+# Local agent/SDD tooling (not part of the product)
+.atl/

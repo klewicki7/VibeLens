@@ -5,13 +5,13 @@ import * as os from "os";
 import { DiffExplanationPanel } from "./webviewProvider";
 import { DiffExplanation } from "./types";
 
-const WATCH_DIR = path.join(os.homedir(), ".explain-changes");
+const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
 
 // MCP server configuration
-const MCP_SERVER_NAME = "explain-changes";
+const MCP_SERVER_NAME = "vibelens";
 const MCP_COMMAND = "npx";
-const MCP_ARGS = ["-y", "explain-changes-mcp"];
+const MCP_ARGS = ["-y", "vibelens-mcp"];
 
 let fileWatcher: fs.FSWatcher | null = null;
 let lastTimestamp = 0;
@@ -100,7 +100,7 @@ async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean>
 
 export async function activate(context: vscode.ExtensionContext) {
   const editorInfo = getEditorInfo();
-  console.log(`Explain Changes extension activated in ${editorInfo.name}`);
+  console.log(`VibeLens extension activated in ${editorInfo.name}`);
 
   // Ensure watch directory exists
   if (!fs.existsSync(WATCH_DIR)) {
@@ -112,14 +112,14 @@ export async function activate(context: vscode.ExtensionContext) {
     const wasInstalled = await ensureMcpServerInstalled(editorInfo.mcpConfigPath);
     if (wasInstalled) {
       vscode.window.showInformationMessage(
-        `Explain Changes MCP server has been configured. Restart ${editorInfo.name} to enable it.`
+        `VibeLens MCP server has been configured. Restart ${editorInfo.name} to enable it.`
       );
     }
   }
 
   // Register command to manually show panel
   const showPanelCommand = vscode.commands.registerCommand(
-    "explainChanges.showPanel",
+    "vibelens.showPanel",
     () => {
       const data = readPendingFile();
       if (data) {
@@ -134,9 +134,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(showPanelCommand);
 
   // Register URI handler for deep links
-  // Works with: vscode://explain-changes.explain-changes/show
-  //         or: cursor://explain-changes.explain-changes/show
-  //         or: windsurf://explain-changes.explain-changes/show
+  // Works with: vscode://VladTansky.vibelens-extension/show
+  //         or: cursor://VladTansky.vibelens-extension/show
+  //         or: windsurf://VladTansky.vibelens-extension/show
   const uriHandler = vscode.window.registerUriHandler({
     handleUri(uri: vscode.Uri) {
       if (uri.path === "/show" || uri.path === "") {

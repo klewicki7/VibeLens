@@ -1,8 +1,8 @@
 {
-  "name": "explain-changes-extension",
-  "displayName": "Explain Changes",
-  "description": "Display AI-generated code explanations with inline annotations",
-  "version": "0.0.1",
+  "name": "vibelens-extension",
+  "displayName": "VibeLens",
+  "description": "VibeLens — AI peer review for your code changes",
+  "version": "0.1.0",
   "publisher": "VladTansky",
   "license": "MIT",
   "author": "Kevin Lewicki <kevin@flexways.com>",
@@ -28,8 +28,8 @@
   "contributes": {
     "commands": [
       {
-        "command": "explainChanges.showPanel",
-        "title": "Explain Changes: Show Panel"
+        "command": "vibelens.showPanel",
+        "title": "VibeLens: Show Panel"
       }
     ]
   },

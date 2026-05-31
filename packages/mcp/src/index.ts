@@ -13,7 +13,7 @@ import { join } from "path";
 import { writeFileSync, existsSync, mkdirSync } from "fs";
 
 // VS Code extension integration
-const WATCH_DIR = join(homedir(), ".explain-changes");
+const WATCH_DIR = join(homedir(), ".vibelens");
 const WATCH_FILE = join(WATCH_DIR, "pending.json");
 
 type Editor = "vscode" | "cursor";
@@ -58,8 +58,8 @@ function writeToExtension(data: DiffExplanationData): void {
 
 const server = new Server(
   {
-    name: "explain-changes-mcp",
-    version: "1.0.0",
+    name: "vibelens-mcp",
+    version: "0.1.0",
   },
   {
     capabilities: {
@@ -69,7 +69,7 @@ const server = new Server(
   }
 );
 
-const EXPLAIN_CHANGES_PROMPT = `Explain code changes visually using the Explain Changes extension.
+const VIBELENS_PROMPT = `Explain code changes visually using the VibeLens extension.
 
 ## Instructions
 
@@ -124,7 +124,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "show_diff_explanation",
-        description: `Shows a git diff with annotations in the Explain Changes extension panel.
+        description: `Shows a git diff with annotations in the VibeLens extension panel.
 
 Use this tool after analyzing code changes to present the diff visually with your explanations.
 
@@ -208,8 +208,8 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
   return {
     prompts: [
       {
-        name: "explain-changes",
-        description: "Instructions for explaining code changes with the Explain Changes extension",
+        name: "vibelens",
+        description: "Instructions for explaining code changes with the VibeLens extension",
       },
     ],
   };
@@ -218,14 +218,14 @@ server.setRequestHandler(ListPromptsRequestSchema, async () => {
 server.setRequestHandler(GetPromptRequestSchema, async (request) => {
   const { name } = request.params;
 
-  if (name === "explain-changes") {
+  if (name === "vibelens") {
     return {
       messages: [
         {
           role: "user" as const,
           content: {
             type: "text" as const,
-            text: EXPLAIN_CHANGES_PROMPT,
+            text: VIBELENS_PROMPT,
           },
         },
       ],
@@ -294,7 +294,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     writeToExtension(extensionData);
 
     // Deep link to open the extension panel
-    const deepLink = `${editor}://explain-changes.explain-changes-extension/show`;
+    // TODO(vibelens): update publisher once Kevin's Marketplace publisher exists
+    const deepLink = `${editor}://VladTansky.vibelens-extension/show`;
 
     return {
       content: [
@@ -302,7 +303,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           type: "text" as const,
           text: `Diff explanation ready${annotationCount > 0 ? ` with ${annotationCount} annotation${annotationCount === 1 ? "" : "s"}` : ""}.
 
-The panel should open automatically. If not, run "Explain Changes: Show Panel" from the command palette.
+The panel should open automatically. If not, run "VibeLens: Show Panel" from the command palette.
 
 Deep link: ${deepLink}`,
         },
@@ -324,7 +325,7 @@ Deep link: ${deepLink}`,
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("Explain Changes MCP server running on stdio");
+  console.error("VibeLens MCP server running on stdio");
 }
 
 main().catch((error) => {

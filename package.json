@@ -1,15 +1,15 @@
 {
-  "name": "explain-changes",
-  "version": "2.0.0",
+  "name": "vibelens",
+  "version": "0.1.0",
   "private": true,
-  "description": "Visualize code changes with AI-generated annotations in VS Code/Cursor",
+  "description": "VibeLens — AI peer review for your code changes",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "pnpm --filter \"./packages/*\" build",
-    "build:mcp": "pnpm --filter explain-changes-mcp build",
-    "build:extension": "pnpm --filter explain-changes-extension compile"
+    "build:mcp": "pnpm --filter vibelens-mcp build",
+    "build:extension": "pnpm --filter vibelens-extension compile"
   },
   "author": "Kevin Lewicki <kevin@flexways.com>",
   "license": "MIT",

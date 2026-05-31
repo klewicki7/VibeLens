@@ -311,7 +311,7 @@ function generateHtml(data) {
   </div>
 
   <footer class="footer">
-    <p class="footer-text">Explain Changes - Dev Mode</p>
+    <p class="footer-text">VibeLens - Dev Mode</p>
   </footer>
 
   <script>
