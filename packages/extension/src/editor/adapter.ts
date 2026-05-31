@@ -51,8 +51,9 @@ export class WindsurfAdapter implements IEditorAdapter {
     return path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json");
   }
 
-  buildDeeplink(prompt: string): string | null {
-    return `windsurf://anysphere.windsurf-deeplink/prompt?text=${encodeURIComponent(prompt)}`;
+  // Windsurf has no public prompt deeplink scheme — fall back to clipboard (R8-S4).
+  buildDeeplink(_prompt: string): string | null {
+    return null;
   }
 }
 

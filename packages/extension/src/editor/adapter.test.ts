@@ -62,10 +62,9 @@ describe("VSCodeAdapter (R9-S2)", () => {
 describe("WindsurfAdapter (R9-S3)", () => {
   const adapter = new WindsurfAdapter();
 
-  it("buildDeeplink returns a windsurf:// URL", () => {
-    const url = adapter.buildDeeplink("some prompt");
-    expect(url).not.toBeNull();
-    expect(url!.startsWith("windsurf://")).toBe(true);
+  it("buildDeeplink returns null (no public prompt deeplink scheme)", () => {
+    // Windsurf has no documented prompt deeplink — fall back to clipboard (R8-S4).
+    expect(adapter.buildDeeplink("some prompt")).toBeNull();
   });
 
   it("getMcpConfigPath returns the Windsurf config path", () => {
