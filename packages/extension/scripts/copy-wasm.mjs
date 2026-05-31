@@ -3,8 +3,8 @@
 // can locate it at runtime via context.extensionUri.fsPath + 'out/sql-wasm.wasm'.
 // See design Decision A: sql.js runs in the extension host, wasm located by
 // filesystem path (NOT asWebviewUri).
-import { copyFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { copyFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
@@ -35,3 +35,33 @@ for (const [specifier, outName] of diff2htmlAssets) {
   copyFileSync(assetSrc, assetDest);
   console.log(`[copy:assets] ${assetSrc} -> ${assetDest}`);
 }
+
+// Bundle the runtime install assets (Node hook script, and in PR3 the SKILL.md /
+// .mdc templates) into out/assets/** so the packaged extension can copy them to
+// ~/.vibelens, ~/.claude, and workspace .cursor/rules at activate time (design
+// Decision D). Tolerant of an absent assets/ dir so the build never hard-fails
+// before the asset content lands.
+function copyDirRecursive(srcDir, destDir) {
+  let entries;
+  try {
+    entries = readdirSync(srcDir);
+  } catch {
+    // No assets/ directory yet — nothing to bundle.
+    return;
+  }
+  mkdirSync(destDir, { recursive: true });
+  for (const name of entries) {
+    const srcPath = join(srcDir, name);
+    const destPath = join(destDir, name);
+    if (statSync(srcPath).isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      copyFileSync(srcPath, destPath);
+      console.log(`[copy:assets] ${relative(pkgRoot, srcPath)} -> ${relative(pkgRoot, destPath)}`);
+    }
+  }
+}
+
+const assetsSrc = join(pkgRoot, "assets");
+const assetsOut = join(outDir, "assets");
+copyDirRecursive(assetsSrc, assetsOut);
