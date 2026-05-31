@@ -3,10 +3,15 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { DiffExplanationPanel } from "./webviewProvider";
-import { DiffExplanation } from "./types";
+import { parseSignal, type SignalFile } from "./signal/schema";
+import { createReviewReader, type ReviewReader } from "./db/reader";
+import { mapToDiffExplanation } from "./db/mapRow";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
+const DB_PATH = path.join(WATCH_DIR, "vibelens.db");
+
+let reviewReader: ReviewReader | null = null;
 
 // MCP server configuration
 const MCP_SERVER_NAME = "vibelens";
@@ -107,6 +112,13 @@ export async function activate(context: vscode.ExtensionContext) {
     fs.mkdirSync(WATCH_DIR, { recursive: true });
   }
 
+  // Initialise the read-only DB reader. The sql.js wasm binary is bundled into
+  // out/ at build time and located by filesystem path (Decision A).
+  reviewReader = createReviewReader(
+    () => path.join(context.extensionUri.fsPath, "out", "sql-wasm.wasm"),
+    DB_PATH
+  );
+
   // Auto-install MCP server if editor supports file-based config
   if (editorInfo.mcpConfigPath) {
     const wasInstalled = await ensureMcpServerInstalled(editorInfo.mcpConfigPath);
@@ -120,11 +132,9 @@ export async function activate(context: vscode.ExtensionContext) {
   // Register command to manually show panel
   const showPanelCommand = vscode.commands.registerCommand(
     "vibelens.showPanel",
-    () => {
-      const data = readPendingFile();
-      if (data) {
-        DiffExplanationPanel.createOrShow(context.extensionUri, data);
-      } else {
+    async () => {
+      const shown = await loadAndShowFromSignal(context, { enforceWorkspace: false });
+      if (!shown) {
         vscode.window.showInformationMessage(
           "No pending diff explanation found."
         );
@@ -138,12 +148,10 @@ export async function activate(context: vscode.ExtensionContext) {
   //         or: cursor://VladTansky.vibelens-extension/show
   //         or: windsurf://VladTansky.vibelens-extension/show
   const uriHandler = vscode.window.registerUriHandler({
-    handleUri(uri: vscode.Uri) {
+    async handleUri(uri: vscode.Uri) {
       if (uri.path === "/show" || uri.path === "") {
-        const data = readPendingFile();
-        if (data) {
-          DiffExplanationPanel.createOrShow(context.extensionUri, data);
-        } else {
+        const shown = await loadAndShowFromSignal(context, { enforceWorkspace: false });
+        if (!shown) {
           vscode.window.showInformationMessage(
             "No pending diff explanation found."
           );
@@ -156,12 +164,8 @@ export async function activate(context: vscode.ExtensionContext) {
   // Start file watcher
   startFileWatcher(context);
 
-  // Check for existing pending file on activation
-  const existingData = readPendingFile();
-  if (existingData && existingData.timestamp > lastTimestamp && isWorkspaceMatch(existingData)) {
-    lastTimestamp = existingData.timestamp;
-    DiffExplanationPanel.createOrShow(context.extensionUri, existingData);
-  }
+  // Check for an existing signal on activation.
+  await loadAndShowFromSignal(context, { enforceWorkspace: true });
 }
 
 function startFileWatcher(context: vscode.ExtensionContext) {
@@ -189,31 +193,79 @@ function startFileWatcher(context: vscode.ExtensionContext) {
 function handleFileChange(context: vscode.ExtensionContext) {
   // Debounce rapid changes
   setTimeout(() => {
-    const data = readPendingFile();
-    if (data && data.timestamp > lastTimestamp && isWorkspaceMatch(data)) {
-      lastTimestamp = data.timestamp;
-      DiffExplanationPanel.createOrShow(context.extensionUri, data);
-      vscode.window.showInformationMessage("New diff explanation received!");
-    }
+    void loadAndShowFromSignal(context, { enforceWorkspace: true, notify: true });
   }, 100);
 }
 
-function readPendingFile(): DiffExplanation | null {
+/**
+ * Reads the signal file, validates it, applies workspace + timestamp guards,
+ * reads the full review from SQLite, maps it to a DiffExplanation and renders
+ * the panel. Returns true when a panel was shown.
+ *
+ * The signal is a pointer only — the review payload comes from the validated
+ * DB read, replacing the previous unvalidated JSON.parse of the full review.
+ */
+async function loadAndShowFromSignal(
+  context: vscode.ExtensionContext,
+  options: { enforceWorkspace: boolean; notify?: boolean }
+): Promise<boolean> {
+  const signal = readSignalFile();
+  if (!signal) {
+    return false;
+  }
+
+  // Freshness guard: ignore signals we have already rendered.
+  if (signal.timestamp <= lastTimestamp) {
+    return false;
+  }
+
+  // Workspace filtering (R3-S3): only render in the matching window.
+  if (options.enforceWorkspace && !isWorkspaceMatch(signal.workspacePath)) {
+    return false;
+  }
+
+  if (!reviewReader) {
+    return false;
+  }
+
+  let bundle: Awaited<ReturnType<ReviewReader["getReview"]>>;
+  try {
+    bundle = await reviewReader.getReview(signal.reviewId);
+  } catch (err) {
+    console.error("VibeLens: failed to read review:", err);
+    vscode.window.showErrorMessage("VibeLens: could not read review");
+    return false;
+  }
+
+  if (!bundle) {
+    return false;
+  }
+
+  const explanation = mapToDiffExplanation(bundle.review, bundle.annotations, signal);
+  lastTimestamp = signal.timestamp;
+  DiffExplanationPanel.createOrShow(context.extensionUri, explanation);
+  if (options.notify) {
+    vscode.window.showInformationMessage("New diff explanation received!");
+  }
+  return true;
+}
+
+function readSignalFile(): SignalFile | null {
   try {
     if (!fs.existsSync(WATCH_FILE)) {
       return null;
     }
     const content = fs.readFileSync(WATCH_FILE, "utf-8");
-    return JSON.parse(content) as DiffExplanation;
+    return parseSignal(content);
   } catch (err) {
-    console.error("Failed to read pending file:", err);
+    console.error("Failed to read signal file:", err);
     return null;
   }
 }
 
-function isWorkspaceMatch(data: DiffExplanation): boolean {
+function isWorkspaceMatch(workspacePath: string | undefined): boolean {
   // If no workspace path specified, show in all windows (backwards compatible)
-  if (!data.workspacePath) {
+  if (!workspacePath) {
     return true;
   }
 
@@ -222,8 +274,8 @@ function isWorkspaceMatch(data: DiffExplanation): boolean {
     return false;
   }
 
-  // Check if any workspace folder matches the data's workspace path
-  const normalizedDataPath = data.workspacePath.replace(/\/$/, "").toLowerCase();
+  // Check if any workspace folder matches the signal's workspace path
+  const normalizedDataPath = workspacePath.replace(/\/$/, "").toLowerCase();
   return workspaceFolders.some((folder) => {
     const normalizedFolderPath = folder.uri.fsPath.replace(/\/$/, "").toLowerCase();
     return normalizedFolderPath === normalizedDataPath;
@@ -235,4 +287,5 @@ export function deactivate() {
     fileWatcher.close();
     fileWatcher = null;
   }
+  reviewReader = null;
 }

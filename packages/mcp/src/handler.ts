@@ -19,6 +19,16 @@ export interface HandlerDeps {
   now: () => number;
   /** Maximum allowed diff size in bytes (strict >) before Zod parse. */
   maxDiffBytes: number;
+  /**
+   * Optional hook invoked after a review is successfully persisted. Used to
+   * write the extension signal file. A throw here MUST NOT fail the tool call
+   * (the review is already saved) — the handler swallows callback errors.
+   */
+  onReviewSaved?: (info: {
+    reviewId: number;
+    workspacePath?: string;
+    timestamp: number;
+  }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -70,6 +80,18 @@ export function createShowDiffExplanationHandler(
         { ...parsed, projectName, projectRemote },
         deps.now()
       );
+
+      // Step 5.5: Signal the extension that a review was saved. A failed
+      // signal write must NOT fail the tool call — the review is persisted.
+      try {
+        deps.onReviewSaved?.({
+          reviewId: result.id,
+          workspacePath: parsed.workspacePath,
+          timestamp: deps.now(),
+        });
+      } catch (signalErr) {
+        console.error("[vibelens-mcp] onReviewSaved hook failed (ignored):", signalErr);
+      }
 
       // Step 6: Success envelope
       return toResult({

@@ -8,10 +8,15 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import * as os from "node:os";
+import * as path from "node:path";
 import { getDb } from "./db/connection.js";
 import { detectProject } from "./project.js";
 import { createShowDiffExplanationHandler } from "./handler.js";
+import { writeSignal } from "./signal.js";
 import { TOOL_INPUT_JSON_SCHEMA, MAX_DIFF_BYTES } from "./schema.js";
+
+const VIBELENS_DIR = path.join(os.homedir(), ".vibelens");
 
 // ---------------------------------------------------------------------------
 // Production handler — wired with real DB singleton, real project detection,
@@ -23,6 +28,7 @@ const showDiffHandler = createShowDiffExplanationHandler({
   detectProject,
   now: () => Date.now(),
   maxDiffBytes: MAX_DIFF_BYTES,
+  onReviewSaved: (info) => writeSignal(VIBELENS_DIR, info),
 });
 
 // ---------------------------------------------------------------------------
