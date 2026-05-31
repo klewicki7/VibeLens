@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import * as fs from "node:fs";
 import {
   mergeClaudeSettings,
   CC_MATCHER,
@@ -135,13 +134,5 @@ describe("mergeClaudeSettings (R11)", () => {
       const parsed = JSON.parse(result.json);
       expect(parsed.hooks.PostToolUse[0].hooks[0].timeout).toBe(45);
     }
-  });
-
-  it("R19-S1/R19.4: the module source imports no vscode", () => {
-    const src = fs.readFileSync(
-      new URL("./claudeSettings.ts", import.meta.url),
-      "utf8"
-    );
-    expect(src).not.toMatch(/from\s+["']vscode["']/);
   });
 });

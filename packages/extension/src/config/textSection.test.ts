@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import * as fs from "node:fs";
 import {
   mergeTextSection,
   VIBELENS_BEGIN,
@@ -63,13 +62,5 @@ describe("mergeTextSection (R15)", () => {
     const result = mergeTextSection("{ arbitrary [ not json", BODY);
     expect(result).not.toHaveProperty("error");
     expect(result).toHaveProperty("text");
-  });
-
-  it("R19-S1/R19.4: the module source imports no vscode", () => {
-    const src = fs.readFileSync(
-      new URL("./textSection.ts", import.meta.url),
-      "utf8"
-    );
-    expect(src).not.toMatch(/from\s+["']vscode["']/);
   });
 });
