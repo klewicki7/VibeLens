@@ -10,7 +10,7 @@ export class DiffExplanationPanel {
   public static currentPanel: DiffExplanationPanel | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
-  private readonly _adapter: IEditorAdapter;
+  private _adapter: IEditorAdapter;
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(
@@ -24,6 +24,7 @@ export class DiffExplanationPanel {
 
     if (DiffExplanationPanel.currentPanel) {
       DiffExplanationPanel.currentPanel._panel.reveal(column);
+      DiffExplanationPanel.currentPanel._adapter = adapter;
       DiffExplanationPanel.currentPanel._update(data);
       return;
     }
