@@ -7,6 +7,7 @@ import { parseSignal, type SignalFile } from "./signal/schema";
 import { createReviewReader, type ReviewReader } from "./db/reader";
 import { mapToDiffExplanation } from "./db/mapRow";
 import { resolveAdapter, type IEditorAdapter } from "./editor/adapter";
+import { mergeMcpConfig } from "./config/mcpConfig";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
@@ -23,56 +24,60 @@ const MCP_ARGS = ["-y", "vibelens-mcp"];
 let fileWatcher: fs.FSWatcher | null = null;
 let lastTimestamp = 0;
 
-type McpServerConfig = {
-  command: string;
-  args: string[];
-};
-
-type McpConfig = {
-  mcpServers: Record<string, McpServerConfig>;
-};
-
-// Auto-install MCP server in editor's config
+// Auto-install MCP server in the editor's config (A1 hardening, spec R10).
+//
+// The pure merge lives in `mergeMcpConfig`: read-parse-or-ABORT (never silently
+// reset a malformed file) + scoped mutation of only `mcpServers.vibelens`. Here
+// we only do IO: read the raw file (null on ENOENT), delegate the decision, then
+// surface errors or write atomically (temp file + rename). Returns true only
+// when the file was actually (re)written.
 async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean> {
+  let existingRaw: string | null = null;
   try {
-    let config: McpConfig = { mcpServers: {} };
-
-    // Read existing config if it exists
-    if (fs.existsSync(mcpConfigPath)) {
-      try {
-        const content = fs.readFileSync(mcpConfigPath, "utf-8");
-        const parsed = JSON.parse(content);
-        if (parsed && typeof parsed === "object" && parsed.mcpServers) {
-          config = parsed as McpConfig;
-        }
-      } catch {
-        // Invalid JSON, will create new config
-      }
-    }
-
-    // Check if already configured
-    const existingServer = config.mcpServers[MCP_SERVER_NAME];
-    if (
-      existingServer &&
-      existingServer.command === MCP_COMMAND &&
-      JSON.stringify(existingServer.args) === JSON.stringify(MCP_ARGS)
-    ) {
-      return false; // Already configured correctly
-    }
-
-    // Add/update server config
-    config.mcpServers[MCP_SERVER_NAME] = {
-      command: MCP_COMMAND,
-      args: MCP_ARGS,
-    };
-
-    // Ensure directory exists and write config
-    fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
-    fs.writeFileSync(mcpConfigPath, JSON.stringify(config, null, 2), "utf-8");
-
-    return true; // Config was updated
+    existingRaw = fs.readFileSync(mcpConfigPath, "utf-8");
   } catch (err) {
-    console.error("Failed to configure MCP server:", err);
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      console.error("Failed to read MCP config:", err);
+      vscode.window.showErrorMessage(
+        "VibeLens: could not read the MCP config file"
+      );
+      return false;
+    }
+    // ENOENT → no file yet; treat as a fresh config.
+  }
+
+  const result = mergeMcpConfig(existingRaw, {
+    command: MCP_COMMAND,
+    args: MCP_ARGS,
+  });
+
+  if ("error" in result) {
+    // Read-parse-or-ABORT (R10-S1): surface and do NOT write.
+    vscode.window.showErrorMessage(
+      `VibeLens: your MCP config could not be updated — ${result.error}. ` +
+        `Please fix ${mcpConfigPath} manually.`
+    );
+    return false;
+  }
+
+  if ("noop" in result) {
+    // Already configured correctly (R10-S4): no rewrite.
+    return false;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
+    // Atomic write: write a temp file then rename so a crash can never leave a
+    // half-written config behind.
+    const tmpPath = `${mcpConfigPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, result.json, "utf-8");
+    fs.renameSync(tmpPath, mcpConfigPath);
+    return true;
+  } catch (err) {
+    console.error("Failed to write MCP config:", err);
+    vscode.window.showErrorMessage(
+      "VibeLens: could not write the MCP config file"
+    );
     return false;
   }
 }
