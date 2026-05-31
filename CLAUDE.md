@@ -79,3 +79,21 @@ The extension receives button clicks via `postMessage`, then calls `vscode.env.o
 
 - **Extension**: Create `.vsix` with `npm run package`, upload to GitHub Releases
 - **MCP**: Published to npm as `explain-changes-mcp`
+
+## VibeLens Enforcement Rule (opt-in)
+
+The VibeLens extension auto-injects the marker-delimited block below into a
+project's `CLAUDE.md` at activation. `AGENTS.md` is NOT auto-written — to opt a
+non-Claude project's agents into the same behavior, copy this block verbatim:
+
+```markdown
+<!-- vibelens:hooks -->
+## VibeLens — Auto-explain changes
+After modifying files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Do not commit as part of this.
+<!-- /vibelens:hooks -->
+```
+
+The text between the markers is the single source of truth (`VIBELENS_RULE_BODY`
+in `packages/extension/src/extension.ts`). Re-running activation replaces only
+the content between the markers; surrounding prose is preserved. See
+`docs/ENFORCEMENT.md` for how the full enforcement chain works.
