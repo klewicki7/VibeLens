@@ -1,8 +1,13 @@
 .vscode/**
 src/**
 dev/**
+assets/**
 node_modules/**
 .gitignore
 tsconfig.json
+scripts/**
 **/*.ts
 **/*.map
+
+# Keep the bundled runtime install assets (copied to out/assets at build).
+!out/assets/**
