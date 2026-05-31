@@ -45,6 +45,7 @@
     "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies"
   },
   "dependencies": {
+    "diff2html": "^3.4.56",
     "sql.js": "^1.13.0",
     "zod": "^4.4.3"
   },
