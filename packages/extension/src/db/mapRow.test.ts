@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapToDiffExplanation } from "./mapRow.js";
+import { mapToDiffExplanation, mapHistoricalReview } from "./mapRow.js";
 import type { RawReviewRow, RawAnnotationRow } from "./schema.js";
 import type { SignalFile } from "../signal/schema.js";
 
@@ -77,5 +77,38 @@ describe("mapToDiffExplanation (R3, R4)", () => {
       diff: "diff --git a/x b/x",
       workspacePath: "/repo",
     });
+  });
+});
+
+describe("mapHistoricalReview (Slice 5 — signal-less history re-open)", () => {
+  it("uses review.created_at as the timestamp (no signal)", () => {
+    const out = mapHistoricalReview(review, [annotation]);
+    expect(out.timestamp).toBe(review.created_at);
+  });
+
+  it("carries title, summary, diff and workspacePath through from the review row", () => {
+    const out = mapHistoricalReview(review, [annotation]);
+    expect(out).toMatchObject({
+      title: "Add auth",
+      summary: "Adds JWT auth",
+      diff: "diff --git a/x b/x",
+      workspacePath: "/repo",
+    });
+  });
+
+  it("maps annotation line null to undefined and parses actions", () => {
+    const out = mapHistoricalReview(review, [annotation]);
+    expect(out.annotations[0]?.line).toBeUndefined();
+    expect(out.annotations[0]?.actions).toEqual([{ label: "Extract", prompt: "Move to helper" }]);
+  });
+
+  it("still coerces an unknown editor value to 'cursor'", () => {
+    const out = mapHistoricalReview({ ...review, editor: "emacs" }, [annotation]);
+    expect(out.editor).toBe("cursor");
+  });
+
+  it("uses a different review.created_at when given a different row", () => {
+    const out = mapHistoricalReview({ ...review, created_at: 42 }, [annotation]);
+    expect(out.timestamp).toBe(42);
   });
 });

@@ -46,3 +46,20 @@ export function mapToDiffExplanation(
     timestamp: signal.timestamp ?? review.created_at,
   };
 }
+
+/**
+ * Maps a stored review re-opened from history, where there is NO triggering
+ * signal. Timestamp comes from `review.created_at`; editor coercion and
+ * annotation mapping are identical to the live path. Delegates to
+ * mapToDiffExplanation with a synthesized signal so the live 3-arg contract
+ * (and its tests) stay byte-identical (ADR-3).
+ */
+export function mapHistoricalReview(
+  review: RawReviewRow,
+  annotations: RawAnnotationRow[]
+): DiffExplanation {
+  return mapToDiffExplanation(review, annotations, {
+    reviewId: review.id,
+    timestamp: review.created_at,
+  } as SignalFile);
+}
