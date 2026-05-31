@@ -94,6 +94,90 @@ describe("FallbackAdapter (R9-S4)", () => {
   });
 });
 
+describe("Slice-4 path methods — CursorAdapter (R17-S1)", () => {
+  const adapter = new CursorAdapter();
+
+  it("getHooksConfigPath -> ~/.cursor/hooks.json", () => {
+    expect(adapter.getHooksConfigPath()).toBe(
+      path.join(os.homedir(), ".cursor", "hooks.json")
+    );
+  });
+
+  it("getCursorRulesPath(ws) -> <ws>/.cursor/rules/vibelens.mdc", () => {
+    expect(adapter.getCursorRulesPath("/work/proj")).toBe(
+      path.join("/work/proj", ".cursor", "rules", "vibelens.mdc")
+    );
+  });
+
+  it("getClaudeSettingsPath -> null", () => {
+    expect(adapter.getClaudeSettingsPath()).toBeNull();
+  });
+
+  it("getSkillInstallPath -> null", () => {
+    expect(adapter.getSkillInstallPath()).toBeNull();
+  });
+});
+
+describe("Slice-4 path methods — VSCodeAdapter (R17-S2)", () => {
+  const adapter = new VSCodeAdapter();
+
+  it("getClaudeSettingsPath -> ~/.claude/settings.json", () => {
+    expect(adapter.getClaudeSettingsPath()).toBe(
+      path.join(os.homedir(), ".claude", "settings.json")
+    );
+  });
+
+  it("getSkillInstallPath -> ~/.claude/skills/vibelens-explain-changes/SKILL.md", () => {
+    expect(adapter.getSkillInstallPath()).toBe(
+      path.join(
+        os.homedir(),
+        ".claude",
+        "skills",
+        "vibelens-explain-changes",
+        "SKILL.md"
+      )
+    );
+  });
+
+  it("getHooksConfigPath -> null", () => {
+    expect(adapter.getHooksConfigPath()).toBeNull();
+  });
+
+  it("getCursorRulesPath -> null", () => {
+    expect(adapter.getCursorRulesPath("/work/proj")).toBeNull();
+  });
+});
+
+describe("Slice-4 path methods — WindsurfAdapter (R17.4)", () => {
+  const adapter = new WindsurfAdapter();
+
+  it("getHooksConfigPath -> null (unverified, avoid bogus config)", () => {
+    expect(adapter.getHooksConfigPath()).toBeNull();
+  });
+
+  it("getCursorRulesPath(ws) -> <ws>/.cursor/rules/vibelens.mdc (cursor-family)", () => {
+    expect(adapter.getCursorRulesPath("/work/proj")).toBe(
+      path.join("/work/proj", ".cursor", "rules", "vibelens.mdc")
+    );
+  });
+
+  it("getClaudeSettingsPath + getSkillInstallPath -> null", () => {
+    expect(adapter.getClaudeSettingsPath()).toBeNull();
+    expect(adapter.getSkillInstallPath()).toBeNull();
+  });
+});
+
+describe("Slice-4 path methods — FallbackAdapter (R17-S3)", () => {
+  const adapter = new FallbackAdapter();
+
+  it("all four return null and never throw", () => {
+    expect(adapter.getHooksConfigPath()).toBeNull();
+    expect(adapter.getClaudeSettingsPath()).toBeNull();
+    expect(adapter.getSkillInstallPath()).toBeNull();
+    expect(adapter.getCursorRulesPath("/work/proj")).toBeNull();
+  });
+});
+
 describe("resolveAdapter (R9-S4 factory)", () => {
   it("returns CursorAdapter for a Cursor appName", () => {
     expect(resolveAdapter("Cursor")).toBeInstanceOf(CursorAdapter);
