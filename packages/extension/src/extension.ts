@@ -8,18 +8,27 @@ import { createReviewReader, type ReviewReader } from "./db/reader";
 import { mapToDiffExplanation } from "./db/mapRow";
 import { resolveAdapter, type IEditorAdapter } from "./editor/adapter";
 import { mergeMcpConfig } from "./config/mcpConfig";
+import { resolveMcpCommand } from "./config/mcpCommand";
+import { mergeClaudeSettings } from "./config/claudeSettings";
+import { mergeCursorHooks } from "./config/hooksConfig";
+import { mergeTextSection } from "./config/textSection";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
 const DB_PATH = path.join(WATCH_DIR, "vibelens.db");
 
+// Bundled Node hook is installed here and referenced by both the Claude Code
+// PostToolUse hook and the Cursor stop hook (spec R11.1 / R12.1).
+const HOOK_INSTALL_PATH = path.join(WATCH_DIR, "hooks", "vibelens-hook.js");
+
+// Canonical fallback rule injected into CLAUDE.md / .cursor/rules (spec R15.1).
+const VIBELENS_RULE_BODY = [
+  "## VibeLens — Auto-explain changes",
+  "After modifying files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Do not commit as part of this.",
+].join("\n");
+
 let reviewReader: ReviewReader | null = null;
 let editorAdapter: IEditorAdapter | null = null;
-
-// MCP server configuration
-const MCP_SERVER_NAME = "vibelens";
-const MCP_COMMAND = "npx";
-const MCP_ARGS = ["-y", "vibelens-mcp"];
 
 let fileWatcher: fs.FSWatcher | null = null;
 let lastTimestamp = 0;
@@ -31,7 +40,11 @@ let lastTimestamp = 0;
 // we only do IO: read the raw file (null on ENOENT), delegate the decision, then
 // surface errors or write atomically (temp file + rename). Returns true only
 // when the file was actually (re)written.
-async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean> {
+async function ensureMcpServerInstalled(
+  mcpConfigPath: string,
+  command: string,
+  args: string[]
+): Promise<boolean> {
   let existingRaw: string | null = null;
   try {
     existingRaw = fs.readFileSync(mcpConfigPath, "utf-8");
@@ -46,10 +59,7 @@ async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean>
     // ENOENT → no file yet; treat as a fresh config.
   }
 
-  const result = mergeMcpConfig(existingRaw, {
-    command: MCP_COMMAND,
-    args: MCP_ARGS,
-  });
+  const result = mergeMcpConfig(existingRaw, { command, args });
 
   if ("error" in result) {
     // Read-parse-or-ABORT (R10-S1): surface and do NOT write.
@@ -82,6 +92,164 @@ async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean>
   }
 }
 
+// Atomic write: temp file + rename so a crash can never leave a half-written
+// file behind (shared Slice-3 pattern). Throws on failure so callers in
+// activate() can catch + surface a scoped warning (R18).
+function atomicWrite(destPath: string, contents: string): void {
+  fs.mkdirSync(path.dirname(destPath), { recursive: true });
+  const tmpPath = `${destPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmpPath, contents, "utf-8");
+  fs.renameSync(tmpPath, destPath);
+}
+
+// Reads a config file as a string, returning null on ENOENT (fresh file). Any
+// other read error is rethrown so the guarded install step surfaces it (R18).
+function readConfigOrNull(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
+    throw err;
+  }
+}
+
+type JsonMergeResult =
+  | { json: string }
+  | { error: string }
+  | { noop: true };
+
+// Shared driver for the JSON-merge install steps (Claude settings, Cursor
+// hooks). Read-parse-or-ABORT on `{ error }` (no-clobber), skip on `{ noop }`,
+// atomic-write on `{ json }`. Returns true only when the file was (re)written.
+function applyJsonMerge(
+  label: string,
+  filePath: string,
+  merge: (raw: string | null) => JsonMergeResult
+): boolean {
+  const existingRaw = readConfigOrNull(filePath);
+  const result = merge(existingRaw);
+
+  if ("error" in result) {
+    vscode.window.showErrorMessage(
+      `VibeLens: could not update ${label} — ${result.error}. ` +
+        `Please fix ${filePath} manually.`
+    );
+    return false;
+  }
+  if ("noop" in result) {
+    return false;
+  }
+  atomicWrite(filePath, result.json);
+  return true;
+}
+
+// Marker-delimited text merge install step (CLAUDE.md / .cursor/rules). Text
+// merges never error; noop is skipped, otherwise atomic-write (R15).
+function applyTextSection(filePath: string, body: string): boolean {
+  const existingRaw = readConfigOrNull(filePath);
+  const result = mergeTextSection(existingRaw, body);
+  if ("noop" in result) {
+    return false;
+  }
+  atomicWrite(filePath, result.text);
+  return true;
+}
+
+// Installs a bundled asset (read from out/assets/<srcRel>) to an absolute
+// destination, version-stamped for idempotent upgrades (design Decision D).
+//
+// - The source's first line carries `// vibelens-asset-version: <N>`; we only
+//   (re)install when the dest is missing or its stamp differs.
+// - A dest that EXISTS but lacks our stamp marker is treated as user-owned: we
+//   warn and skip rather than clobber it.
+// - Writes are atomic (temp + rename). Throws on fs failure so the caller's
+//   guard can surface a scoped warning and continue (R18).
+//
+// Returns true when the asset was (re)installed, false when skipped (current /
+// user-owned / source absent).
+const ASSET_VERSION_RE = /vibelens-asset-version:\s*(\d+)/;
+
+function readAssetVersion(contents: string): string | null {
+  const match = contents.match(ASSET_VERSION_RE);
+  return match ? match[1] : null;
+}
+
+function installAsset(
+  context: vscode.ExtensionContext,
+  srcRel: string,
+  destAbs: string
+): boolean {
+  const srcPath = path.join(context.extensionUri.fsPath, "out", "assets", srcRel);
+
+  let srcContents: string;
+  try {
+    srcContents = fs.readFileSync(srcPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Source asset not bundled (e.g. content lands in a later PR) — skip
+      // quietly rather than hard-fail (R18, tolerant-of-absence).
+      console.warn(`VibeLens: bundled asset ${srcRel} not found; skipping install.`);
+      return false;
+    }
+    throw err;
+  }
+
+  const srcVersion = readAssetVersion(srcContents);
+
+  let destContents: string | null = null;
+  try {
+    destContents = fs.readFileSync(destAbs, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw err;
+    }
+  }
+
+  if (destContents !== null) {
+    const destVersion = readAssetVersion(destContents);
+    if (destVersion === null) {
+      // User-owned file lacking our stamp — never clobber.
+      vscode.window.showWarningMessage(
+        `VibeLens: ${destAbs} exists but is not VibeLens-managed; leaving it untouched.`
+      );
+      return false;
+    }
+    if (destVersion === srcVersion) {
+      // Already current — idempotent skip.
+      return false;
+    }
+  }
+
+  atomicWrite(destAbs, srcContents);
+  return true;
+}
+
+// Runs one install step under its own guard so a single failure surfaces a
+// scoped warning but never aborts the remaining steps or activate() (R18).
+function guardedInstall(label: string, step: () => void): void {
+  try {
+    step();
+  } catch (err) {
+    console.error(`VibeLens: ${label} install failed:`, err);
+    vscode.window.showErrorMessage(`VibeLens: ${label} setup failed — ${String(err)}`);
+  }
+}
+
+// Async variant of {@link guardedInstall} for steps that await IO (R18).
+async function guardedInstallAsync(
+  label: string,
+  step: () => Promise<void>
+): Promise<void> {
+  try {
+    await step();
+  } catch (err) {
+    console.error(`VibeLens: ${label} install failed:`, err);
+    vscode.window.showErrorMessage(`VibeLens: ${label} setup failed — ${String(err)}`);
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   const adapter = resolveAdapter(vscode.env.appName);
   editorAdapter = adapter;
@@ -99,14 +267,76 @@ export async function activate(context: vscode.ExtensionContext) {
     DB_PATH
   );
 
-  // Auto-install MCP server if editor supports file-based config
+  // --- Enforcement install (design Decision E): four INDEPENDENT guarded steps.
+  // Each runs under its own try/catch so one failure (e.g. missing ~/.claude on
+  // a Cursor-only machine) never aborts the others or activate() itself (R18).
+  // The bundled hook script is installed BEFORE any config that references its
+  // path so the registered command always points at a real file.
+
+  // (1) MCP dev-shim: prefer a locally built dist over `npx -y vibelens-mcp`
+  // (R16) and flow it through the existing mergeMcpConfig path (R16.3).
   const mcpConfigPath = adapter.getMcpConfigPath();
   if (mcpConfigPath) {
-    const wasInstalled = await ensureMcpServerInstalled(mcpConfigPath);
-    if (wasInstalled) {
-      vscode.window.showInformationMessage(
-        `VibeLens MCP server has been configured. Restart ${adapter.name} to enable it.`
+    await guardedInstallAsync("MCP server", async () => {
+      const { command, args } = resolveMcpCommand({
+        distPath: process.env.VIBELENS_MCP_DIST,
+        siblingDistExists: (p) =>
+          fs.existsSync(path.join(context.extensionUri.fsPath, p)),
+      });
+      const wasInstalled = await ensureMcpServerInstalled(mcpConfigPath, command, args);
+      if (wasInstalled) {
+        vscode.window.showInformationMessage(
+          `VibeLens MCP server has been configured. Restart ${adapter.name} to enable it.`
+        );
+      }
+    });
+  }
+
+  // (2) Cursor hooks: install the hook asset FIRST, then register a managed
+  // `stop` entry pointing at it in ~/.cursor/hooks.json (R12).
+  const hooksConfigPath = adapter.getHooksConfigPath();
+  if (hooksConfigPath) {
+    guardedInstall("Cursor hooks", () => {
+      installAsset(context, "hooks/vibelens-hook.js", HOOK_INSTALL_PATH);
+      applyJsonMerge("Cursor hooks", hooksConfigPath, (raw) =>
+        mergeCursorHooks(raw, { command: `node ${HOOK_INSTALL_PATH}` })
       );
+    });
+  }
+
+  // (3) Claude Code settings + skill: install the hook asset FIRST, register a
+  // managed PostToolUse hook in ~/.claude/settings.json (R11), then install the
+  // skill file (R14.1 — content lands in PR3, install is tolerant of absence).
+  const claudeSettingsPath = adapter.getClaudeSettingsPath();
+  if (claudeSettingsPath) {
+    guardedInstall("Claude Code settings", () => {
+      installAsset(context, "hooks/vibelens-hook.js", HOOK_INSTALL_PATH);
+      applyJsonMerge("Claude Code settings", claudeSettingsPath, (raw) =>
+        mergeClaudeSettings(raw, { command: `node ${HOOK_INSTALL_PATH}` })
+      );
+    });
+  }
+  const skillInstallPath = adapter.getSkillInstallPath();
+  if (skillInstallPath) {
+    guardedInstall("Claude Code skill", () => {
+      installAsset(context, "skills/vibelens-explain-changes/SKILL.md", skillInstallPath);
+    });
+  }
+
+  // (4) Fallback rule files: marker-delimited block in the workspace CLAUDE.md,
+  // and the .cursor/rules/vibelens.mdc template under Cursor (R14.2, R15).
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  if (workspaceRoot) {
+    guardedInstall("CLAUDE.md rule", () => {
+      applyTextSection(path.join(workspaceRoot, "CLAUDE.md"), VIBELENS_RULE_BODY);
+    });
+    const cursorRulesPath = adapter.getCursorRulesPath(workspaceRoot);
+    if (cursorRulesPath) {
+      guardedInstall("Cursor rule", () => {
+        // The .mdc content (frontmatter template) lands in PR3; tolerant of
+        // absence today.
+        installAsset(context, "rules/vibelens.mdc", cursorRulesPath);
+      });
     }
   }
 
