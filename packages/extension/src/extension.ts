@@ -6,6 +6,7 @@ import { DiffExplanationPanel } from "./webviewProvider";
 import { parseSignal, type SignalFile } from "./signal/schema";
 import { createReviewReader, type ReviewReader } from "./db/reader";
 import { mapToDiffExplanation } from "./db/mapRow";
+import { resolveAdapter } from "./editor/adapter";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
@@ -29,34 +30,6 @@ type McpServerConfig = {
 type McpConfig = {
   mcpServers: Record<string, McpServerConfig>;
 };
-
-// Detect editor type
-function getEditorInfo(): { name: string; scheme: string; mcpConfigPath: string | null } {
-  const appName = vscode.env.appName.toLowerCase();
-
-  if (appName.includes("cursor")) {
-    return {
-      name: "Cursor",
-      scheme: "cursor",
-      mcpConfigPath: path.join(os.homedir(), ".cursor", "mcp.json"),
-    };
-  }
-
-  if (appName.includes("windsurf")) {
-    return {
-      name: "Windsurf",
-      scheme: "windsurf",
-      mcpConfigPath: path.join(os.homedir(), ".codeium", "windsurf", "mcp_config.json"),
-    };
-  }
-
-  // VS Code - no file-based MCP config (uses native API in 1.101+)
-  return {
-    name: "VS Code",
-    scheme: "vscode",
-    mcpConfigPath: null,
-  };
-}
 
 // Auto-install MCP server in editor's config
 async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean> {
@@ -104,8 +77,8 @@ async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean>
 }
 
 export async function activate(context: vscode.ExtensionContext) {
-  const editorInfo = getEditorInfo();
-  console.log(`VibeLens extension activated in ${editorInfo.name}`);
+  const adapter = resolveAdapter(vscode.env.appName);
+  console.log(`VibeLens extension activated in ${adapter.name}`);
 
   // Ensure watch directory exists
   if (!fs.existsSync(WATCH_DIR)) {
@@ -120,11 +93,12 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Auto-install MCP server if editor supports file-based config
-  if (editorInfo.mcpConfigPath) {
-    const wasInstalled = await ensureMcpServerInstalled(editorInfo.mcpConfigPath);
+  const mcpConfigPath = adapter.getMcpConfigPath();
+  if (mcpConfigPath) {
+    const wasInstalled = await ensureMcpServerInstalled(mcpConfigPath);
     if (wasInstalled) {
       vscode.window.showInformationMessage(
-        `VibeLens MCP server has been configured. Restart ${editorInfo.name} to enable it.`
+        `VibeLens MCP server has been configured. Restart ${adapter.name} to enable it.`
       );
     }
   }
