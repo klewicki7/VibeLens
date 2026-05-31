@@ -1,7 +1,8 @@
 {
   "name": "explain-changes-mcp",
   "version": "1.1.0",
-  "description": "MCP server that displays AI-generated code change explanations with inline annotations in VS Code/Cursor",
+  "description": "MCP tool for AI to visualize code changes with inline annotations in VS Code/Cursor",
+  "type": "module",
   "main": "dist/index.js",
   "author": "Kevin Lewicki <kevin@flexways.com>",
   "license": "MIT",
@@ -18,14 +19,16 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "prepublishOnly": "pnpm run build"
   },
   "keywords": [
     "mcp",
-    "model-context-protocol"
-  ],
-  "files": [
-    "dist"
+    "explain-changes",
+    "ai",
+    "diff",
+    "vscode",
+    "cursor"
   ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"
@@ -33,5 +36,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

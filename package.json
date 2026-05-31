@@ -11,6 +11,13 @@
     "build:mcp": "pnpm --filter explain-changes-mcp build",
     "build:extension": "pnpm --filter explain-changes-extension compile"
   },
-  "author": "",
-  "license": "MIT"
+  "author": "Kevin Lewicki <kevin@flexways.com>",
+  "license": "MIT",
+  "contributors": [
+    "Vlad Tansky (original explain-changes-mcp)"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klewicki7/VibeLens.git"
+  }
 }
