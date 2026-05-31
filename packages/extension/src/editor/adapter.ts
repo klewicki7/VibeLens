@@ -25,6 +25,18 @@ export interface IEditorAdapter {
   getMcpConfigPath(): string | null;
   buildDeeplink(prompt: string): string | null;
   readonly logo: string;
+
+  // --- Slice-4 enforcement paths (spec R17). Each returns `null` when the
+  // location does not apply to this editor, so the activate() composition root
+  // simply skips null paths. Claude Code rides the VS Code family (appName).
+  /** Cursor stop-hook config (`~/.cursor/hooks.json`); null for non-Cursor. */
+  getHooksConfigPath(): string | null;
+  /** Claude Code settings (`~/.claude/settings.json`); null off the CC family. */
+  getClaudeSettingsPath(): string | null;
+  /** Claude Code skill file (`~/.claude/skills/.../SKILL.md`); null otherwise. */
+  getSkillInstallPath(): string | null;
+  /** Cursor project rule (`<ws>/.cursor/rules/vibelens.mdc`); null otherwise. */
+  getCursorRulesPath(workspaceRoot: string): string | null;
 }
 
 export class CursorAdapter implements IEditorAdapter {
@@ -38,6 +50,22 @@ export class CursorAdapter implements IEditorAdapter {
 
   buildDeeplink(prompt: string): string | null {
     return `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(prompt)}`;
+  }
+
+  getHooksConfigPath(): string | null {
+    return path.join(os.homedir(), ".cursor", "hooks.json");
+  }
+
+  getClaudeSettingsPath(): string | null {
+    return null;
+  }
+
+  getSkillInstallPath(): string | null {
+    return null;
+  }
+
+  getCursorRulesPath(workspaceRoot: string): string | null {
+    return path.join(workspaceRoot, ".cursor", "rules", "vibelens.mdc");
   }
 }
 
@@ -55,6 +83,25 @@ export class WindsurfAdapter implements IEditorAdapter {
   buildDeeplink(_prompt: string): string | null {
     return null;
   }
+
+  // Windsurf hooks.json location is unverified (design Risk 7) — return null
+  // until confirmed so we never write a bogus config.
+  getHooksConfigPath(): string | null {
+    return null;
+  }
+
+  getClaudeSettingsPath(): string | null {
+    return null;
+  }
+
+  getSkillInstallPath(): string | null {
+    return null;
+  }
+
+  // Cursor-family: project rules live under `.cursor/rules` (R17.4).
+  getCursorRulesPath(workspaceRoot: string): string | null {
+    return path.join(workspaceRoot, ".cursor", "rules", "vibelens.mdc");
+  }
 }
 
 export class VSCodeAdapter implements IEditorAdapter {
@@ -69,6 +116,29 @@ export class VSCodeAdapter implements IEditorAdapter {
 
   // VS Code has no deeplink scheme → clipboard fallback (spec R8-S4, R9-S2).
   buildDeeplink(_prompt: string): string | null {
+    return null;
+  }
+
+  getHooksConfigPath(): string | null {
+    return null;
+  }
+
+  // Claude Code rides the VS Code appName, so CC artifacts live on this adapter.
+  getClaudeSettingsPath(): string | null {
+    return path.join(os.homedir(), ".claude", "settings.json");
+  }
+
+  getSkillInstallPath(): string | null {
+    return path.join(
+      os.homedir(),
+      ".claude",
+      "skills",
+      "vibelens-explain-changes",
+      "SKILL.md"
+    );
+  }
+
+  getCursorRulesPath(_workspaceRoot: string): string | null {
     return null;
   }
 }
@@ -87,6 +157,22 @@ export class FallbackAdapter implements IEditorAdapter {
   }
 
   buildDeeplink(_prompt: string): string | null {
+    return null;
+  }
+
+  getHooksConfigPath(): string | null {
+    return null;
+  }
+
+  getClaudeSettingsPath(): string | null {
+    return null;
+  }
+
+  getSkillInstallPath(): string | null {
+    return null;
+  }
+
+  getCursorRulesPath(_workspaceRoot: string): string | null {
     return null;
   }
 }
