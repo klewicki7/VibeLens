@@ -36,6 +36,27 @@ describe("computeContentHash", () => {
     const b = computeContentHash({ title: "t", diff: "d", workspacePath: "/b" });
     expect(a).not.toBe(b);
   });
+
+  it("is stable when the same annotations are provided", () => {
+    const anns = [{ file: "src/a.ts", line: 1, explanation: "note", actions: [{ label: "L", prompt: "P" }] }];
+    const a = computeContentHash({ title: "t", diff: "d", annotations: anns });
+    const b = computeContentHash({ title: "t", diff: "d", annotations: anns });
+    expect(a).toBe(b);
+  });
+
+  it("differs when annotations change", () => {
+    const annsA = [{ file: "src/a.ts", explanation: "note A" }];
+    const annsB = [{ file: "src/a.ts", explanation: "note B" }];
+    const a = computeContentHash({ title: "t", diff: "d", annotations: annsA });
+    const b = computeContentHash({ title: "t", diff: "d", annotations: annsB });
+    expect(a).not.toBe(b);
+  });
+
+  it("differs from hash with no annotations when annotations are provided", () => {
+    const withAnns = computeContentHash({ title: "t", diff: "d", annotations: [{ file: "f.ts", explanation: "e" }] });
+    const withoutAnns = computeContentHash({ title: "t", diff: "d" });
+    expect(withAnns).not.toBe(withoutAnns);
+  });
 });
 
 describe("saveReview + getReview", () => {
@@ -153,6 +174,56 @@ describe("deduplication", () => {
     );
     expect(second.deduped).toBe(false);
     expect(second.id).not.toBe(first.id);
+
+    db.close();
+  });
+
+  it("does NOT dedup when same title/diff/workspacePath but DIFFERENT annotations (within window)", () => {
+    const db = makeDb();
+    const base = 8_000_000;
+    const sharedFields = { title: "Ann-diff", diff: "diff --git a/z.ts ...", workspacePath: "/r" };
+
+    const first = saveReview(
+      db,
+      { ...sharedFields, annotations: [{ file: "src/a.ts", explanation: "original note" }] },
+      base
+    );
+    expect(first.deduped).toBe(false);
+
+    // Same base fields, different annotations — still within dedup window
+    const second = saveReview(
+      db,
+      { ...sharedFields, annotations: [{ file: "src/a.ts", explanation: "updated note" }] },
+      base + 1000
+    );
+    expect(second.deduped).toBe(false);
+    expect(second.id).not.toBe(first.id);
+
+    // Each row must store its own annotations
+    const rowA = getReview(db, first.id);
+    const rowB = getReview(db, second.id);
+    expect(rowA!.annotations[0].explanation).toBe("original note");
+    expect(rowB!.annotations[0].explanation).toBe("updated note");
+
+    db.close();
+  });
+
+  it("still dedupes when title/diff/workspacePath AND annotations are all identical (within window)", () => {
+    const db = makeDb();
+    const base = 9_000_000;
+    const input = {
+      title: "Full-match",
+      diff: "diff --git a/m.ts ...",
+      workspacePath: "/s",
+      annotations: [{ file: "src/m.ts", explanation: "same note", actions: [{ label: "L", prompt: "P" }] }],
+    };
+
+    const first = saveReview(db, input, base);
+    expect(first.deduped).toBe(false);
+
+    const second = saveReview(db, input, base + 500);
+    expect(second.deduped).toBe(true);
+    expect(second.id).toBe(first.id);
 
     db.close();
   });
