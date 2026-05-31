@@ -25,6 +25,19 @@ export const RawReviewRowSchema = z.object({
 
 export type RawReviewRow = z.infer<typeof RawReviewRowSchema>;
 
+// Lightweight summary row for the review-history list (Slice 5). Only the five
+// columns selected by listReviews — deliberately NO `diff` column, so history
+// summaries stay cheap. Field types mirror RawReviewRowSchema exactly.
+export const RawReviewSummaryRowSchema = z.object({
+  id: z.number().int().positive(),
+  title: z.string(),
+  summary: z.string().nullable(),
+  project_name: z.string().nullable(),
+  created_at: z.number().int(),
+});
+
+export type RawReviewSummaryRow = z.infer<typeof RawReviewSummaryRowSchema>;
+
 export const RawAnnotationRowSchema = z.object({
   id: z.number().int(),
   sync_id: z.string(),

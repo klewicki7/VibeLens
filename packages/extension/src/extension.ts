@@ -454,7 +454,13 @@ async function loadAndShowFromSignal(
 
   const explanation = mapToDiffExplanation(bundle.review, bundle.annotations, signal);
   lastTimestamp = signal.timestamp;
-  DiffExplanationPanel.createOrShow(context.extensionUri, explanation, editorAdapter);
+  // Active-project source for the history filter is the just-shown review
+  // (ADR-1 / design §4): the review carries the project the history must match.
+  DiffExplanationPanel.createOrShow(context.extensionUri, explanation, editorAdapter, {
+    reviewId: bundle.review.id,
+    projectName: bundle.review.project_name,
+    reader: reviewReader,
+  });
   if (options.notify) {
     vscode.window.showInformationMessage("New diff explanation received!");
   }
