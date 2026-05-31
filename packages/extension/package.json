@@ -24,9 +24,9 @@
     ]
   },
   "scripts": {
-    "vscode:prepublish": "npm run build",
+    "vscode:prepublish": "pnpm run build",
     "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
-    "compile": "npm run build",
+    "compile": "pnpm run build",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
     "dev": "node dev/server.mjs",
     "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies"

@@ -1,6 +1,11 @@
 MIT License
 
-Copyright (c) 2025
+Copyright (c) 2026 Kevin Lewicki (VibeLens)
+Copyright (c) 2025 Vlad Tansky (explain-changes-mcp, original work)
+
+This project (VibeLens) is a fork of explain-changes-mcp by Vlad Tansky,
+distributed under the MIT License. The original copyright notice is retained
+above as required by the license.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
