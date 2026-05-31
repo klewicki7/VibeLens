@@ -230,6 +230,12 @@ export function saveReview(
   });
 
   const reviewId = insert() as number;
+
+  // Flush WAL into the main DB file so external readers (the extension's
+  // sql.js reader, which reads only the main file and cannot see the -wal
+  // sidecar) observe this write immediately.
+  db.pragma("wal_checkpoint(TRUNCATE)");
+
   return { id: reviewId, sync_id: syncId, deduped: false };
 }
 
