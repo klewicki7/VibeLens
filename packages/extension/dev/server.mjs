@@ -6,6 +6,16 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3457;
 
+// Fixed nonce for the dev host. Production uses a per-load random nonce
+// (see src/webview/csp.ts getNonce); the dev server only needs a stable value
+// so the served HTML stays consistent across hot reloads.
+const DEV_NONCE = "vibelens-dev-nonce";
+
+// diff2html assets are bundled locally into out/ by `pnpm run copy:wasm`.
+// The dev server serves them from there instead of a CDN, mirroring the
+// extension's local-asset policy (spec R6 / design Decision C).
+const OUT_DIR = path.join(__dirname, "../out");
+
 // Mock data for testing
 const mockData = {
   title: "Add user authentication",
@@ -119,14 +129,13 @@ function generateHtml(data) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>
+  <link rel="stylesheet" nonce="${DEV_NONCE}" href="/assets/diff2html.min.css">
+  <script nonce="${DEV_NONCE}" src="/assets/diff2html-ui.min.js"></script>
+  <style nonce="${DEV_NONCE}">
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: var(--vscode-font-family), sans-serif;
       background: #0d1117;
       color: #e6edf3;
       line-height: 1.5;
@@ -205,8 +214,8 @@ function generateHtml(data) {
 
     .d2h-file-wrapper { border-radius: 6px; overflow: hidden; margin-bottom: 0 !important; }
     .d2h-file-header { padding: 10px 16px; background: #161b22 !important; }
-    .d2h-file-name { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; }
-    .d2h-diff-table { font-family: 'JetBrains Mono', monospace; font-size: 12px; width: 100% !important; }
+    .d2h-file-name { font-family: var(--vscode-editor-font-family), monospace; font-size: 13px; font-weight: 600; }
+    .d2h-diff-table { font-family: var(--vscode-editor-font-family), monospace; font-size: 12px; width: 100% !important; }
 
     .d2h-code-linenumber, .d2h-code-side-linenumber { background: transparent !important; }
 
@@ -273,7 +282,7 @@ function generateHtml(data) {
     .footer-text {
       font-size: 11px;
       color: #484f58;
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--vscode-editor-font-family), monospace;
     }
 
     /* Dev mode indicator */
@@ -515,6 +524,25 @@ const server = http.createServer((req, res) => {
     req.on("close", () => {
       clients = clients.filter((c) => c !== res);
     });
+    return;
+  }
+
+  // Serve locally bundled diff2html assets (no CDN).
+  if (req.url?.startsWith("/assets/")) {
+    const assetName = path.basename(req.url.split("?")[0]);
+    const assetPath = path.join(OUT_DIR, assetName);
+    if (!fs.existsSync(assetPath)) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end(
+        `Asset not found: ${assetName}. Run "pnpm run copy:wasm" (or "pnpm run build") first.`
+      );
+      return;
+    }
+    const contentType = assetName.endsWith(".css")
+      ? "text/css"
+      : "application/javascript";
+    res.writeHead(200, { "Content-Type": contentType });
+    res.end(fs.readFileSync(assetPath));
     return;
   }
 

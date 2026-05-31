@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { DiffExplanation, Annotation, Action } from "./types";
+import { buildCsp, getNonce } from "./webview/csp.js";
 
 export class DiffExplanationPanel {
   public static currentPanel: DiffExplanationPanel | undefined;
@@ -28,7 +29,7 @@ export class DiffExplanationPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [extensionUri],
+        localResourceRoots: [vscode.Uri.joinPath(extensionUri, "out")],
       }
     );
 
@@ -115,23 +116,35 @@ export class DiffExplanationPanel {
 
     const escapedDiff = this._escapeForJs(diff);
     const annotationsJson = JSON.stringify(annotations);
-    const diffStyle = "side-by-side";
+    type DiffView = "side-by-side" | "line-by-line";
+    const diffStyle = "side-by-side" as DiffView;
+    const isActiveView = (view: DiffView): string =>
+      diffStyle === view ? " active" : "";
+
+    const webview = this._panel.webview;
+    const nonce = getNonce();
+    const csp = buildCsp(webview.cspSource, nonce);
+    const diff2htmlCssUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "diff2html.min.css")
+    );
+    const diff2htmlJsUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this._extensionUri, "out", "diff2html-ui.min.js")
+    );
 
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline' https://cdn.jsdelivr.net; img-src data:;">
+  <meta http-equiv="Content-Security-Policy" content="${csp}">
   <title>${this._escapeHtml(title)}</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html/bundles/css/diff2html.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/diff2html/bundles/js/diff2html-ui.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <style>
+  <link rel="stylesheet" nonce="${nonce}" href="${diff2htmlCssUri}">
+  <script nonce="${nonce}" src="${diff2htmlJsUri}"></script>
+  <style nonce="${nonce}">
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: 'Inter', var(--vscode-font-family), sans-serif;
+      font-family: var(--vscode-font-family), sans-serif;
       background: var(--vscode-editor-background, #0d1117);
       color: var(--vscode-editor-foreground, #e6edf3);
       line-height: 1.5;
@@ -246,7 +259,7 @@ export class DiffExplanationPanel {
     }
 
     .d2h-file-name {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: var(--vscode-editor-font-family), ui-monospace, monospace;
       font-size: 13px;
       font-weight: 600;
     }
@@ -262,7 +275,7 @@ export class DiffExplanationPanel {
     }
 
     .d2h-diff-table {
-      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-family: var(--vscode-editor-font-family), ui-monospace, monospace;
       font-size: 12px;
       width: 100% !important;
     }
@@ -349,7 +362,7 @@ export class DiffExplanationPanel {
     .footer-text {
       font-size: 11px;
       color: var(--vscode-descriptionForeground, #484f58);
-      font-family: 'JetBrains Mono', monospace;
+      font-family: var(--vscode-editor-font-family), monospace;
     }
   </style>
 </head>
@@ -358,13 +371,13 @@ export class DiffExplanationPanel {
     <h1 class="header-title">${this._escapeHtml(title)}</h1>
     <div class="header-actions">
       <div class="view-toggle">
-        <button class="view-toggle-btn${diffStyle === "line-by-line" ? " active" : ""}" data-view="line-by-line">
+        <button class="view-toggle-btn${isActiveView("line-by-line")}" data-view="line-by-line">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
           <span>Unified</span>
         </button>
-        <button class="view-toggle-btn${diffStyle === "side-by-side" ? " active" : ""}" data-view="side-by-side">
+        <button class="view-toggle-btn${isActiveView("side-by-side")}" data-view="side-by-side">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M9 4v16M4 4h16v16H4z"/>
           </svg>
@@ -390,7 +403,7 @@ export class DiffExplanationPanel {
     <p class="footer-text">VibeLens</p>
   </footer>
 
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const diffString = \`${escapedDiff}\`;
     const annotations = ${annotationsJson};

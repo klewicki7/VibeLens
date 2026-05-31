@@ -14,10 +14,24 @@ const require = createRequire(import.meta.url);
 const pkgRoot = join(__dirname, "..");
 const outDir = join(pkgRoot, "out");
 
-// Resolve the wasm binary via the package's "./dist/*" export.
-const src = require.resolve("sql.js/dist/sql-wasm.wasm");
-const dest = join(outDir, "sql-wasm.wasm");
-
 mkdirSync(outDir, { recursive: true });
-copyFileSync(src, dest);
-console.log(`[copy:wasm] ${src} -> ${dest}`);
+
+// Resolve the wasm binary via the package's "./dist/*" export.
+const wasmSrc = require.resolve("sql.js/dist/sql-wasm.wasm");
+const wasmDest = join(outDir, "sql-wasm.wasm");
+copyFileSync(wasmSrc, wasmDest);
+console.log(`[copy:wasm] ${wasmSrc} -> ${wasmDest}`);
+
+// Bundle diff2html JS + CSS locally so the webview never loads a CDN.
+// See design Decision C (diff2html under strict CSP) and spec R6 (local assets).
+const diff2htmlAssets = [
+  ["diff2html/bundles/js/diff2html-ui.min.js", "diff2html-ui.min.js"],
+  ["diff2html/bundles/css/diff2html.min.css", "diff2html.min.css"],
+];
+
+for (const [specifier, outName] of diff2htmlAssets) {
+  const assetSrc = require.resolve(specifier);
+  const assetDest = join(outDir, outName);
+  copyFileSync(assetSrc, assetDest);
+  console.log(`[copy:assets] ${assetSrc} -> ${assetDest}`);
+}
