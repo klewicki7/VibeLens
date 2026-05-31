@@ -6,13 +6,14 @@ import { DiffExplanationPanel } from "./webviewProvider";
 import { parseSignal, type SignalFile } from "./signal/schema";
 import { createReviewReader, type ReviewReader } from "./db/reader";
 import { mapToDiffExplanation } from "./db/mapRow";
-import { resolveAdapter } from "./editor/adapter";
+import { resolveAdapter, type IEditorAdapter } from "./editor/adapter";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
 const DB_PATH = path.join(WATCH_DIR, "vibelens.db");
 
 let reviewReader: ReviewReader | null = null;
+let editorAdapter: IEditorAdapter | null = null;
 
 // MCP server configuration
 const MCP_SERVER_NAME = "vibelens";
@@ -78,6 +79,7 @@ async function ensureMcpServerInstalled(mcpConfigPath: string): Promise<boolean>
 
 export async function activate(context: vscode.ExtensionContext) {
   const adapter = resolveAdapter(vscode.env.appName);
+  editorAdapter = adapter;
   console.log(`VibeLens extension activated in ${adapter.name}`);
 
   // Ensure watch directory exists
@@ -198,7 +200,7 @@ async function loadAndShowFromSignal(
     return false;
   }
 
-  if (!reviewReader) {
+  if (!reviewReader || !editorAdapter) {
     return false;
   }
 
@@ -217,7 +219,7 @@ async function loadAndShowFromSignal(
 
   const explanation = mapToDiffExplanation(bundle.review, bundle.annotations, signal);
   lastTimestamp = signal.timestamp;
-  DiffExplanationPanel.createOrShow(context.extensionUri, explanation);
+  DiffExplanationPanel.createOrShow(context.extensionUri, explanation, editorAdapter);
   if (options.notify) {
     vscode.window.showInformationMessage("New diff explanation received!");
   }
@@ -262,4 +264,5 @@ export function deactivate() {
     fileWatcher = null;
   }
   reviewReader = null;
+  editorAdapter = null;
 }
