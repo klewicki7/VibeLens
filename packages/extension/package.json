@@ -45,7 +45,8 @@
     "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies"
   },
   "dependencies": {
-    "sql.js": "^1.13.0"
+    "sql.js": "^1.13.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
