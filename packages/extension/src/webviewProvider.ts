@@ -1,16 +1,22 @@
 import * as vscode from "vscode";
 import { DiffExplanation, Annotation, Action } from "./types";
 import { buildCsp, getNonce } from "./webview/csp.js";
+import { buildPreview } from "./webview/confirmGate.js";
+import { type IEditorAdapter } from "./editor/adapter.js";
+
+const PROMPT_PREVIEW_MAX = 500;
 
 export class DiffExplanationPanel {
   public static currentPanel: DiffExplanationPanel | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
+  private readonly _adapter: IEditorAdapter;
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(
     extensionUri: vscode.Uri,
-    data: DiffExplanation
+    data: DiffExplanation,
+    adapter: IEditorAdapter
   ): void {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
@@ -36,17 +42,20 @@ export class DiffExplanationPanel {
     DiffExplanationPanel.currentPanel = new DiffExplanationPanel(
       panel,
       extensionUri,
-      data
+      data,
+      adapter
     );
   }
 
   private constructor(
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
-    data: DiffExplanation
+    data: DiffExplanation,
+    adapter: IEditorAdapter
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
+    this._adapter = adapter;
 
     this._update(data);
 
@@ -93,17 +102,51 @@ export class DiffExplanationPanel {
   }
 
   private async _executeAction(prompt: string) {
-    // Use native Cursor deeplink
-    const deepLink = `cursor://anysphere.cursor-deeplink/prompt?text=${encodeURIComponent(prompt)}`;
-    try {
-      await vscode.env.openExternal(vscode.Uri.parse(deepLink));
-    } catch (err) {
-      // Fallback: copy to clipboard
-      await vscode.env.clipboard.writeText(prompt);
-      vscode.window.showInformationMessage(
-        "Prompt copied to clipboard. Press Cmd+L and paste to start a chat."
-      );
+    const deepLink = this._adapter.buildDeeplink(prompt);
+
+    // R8-S4: editor exposes no deeplink scheme (e.g. VS Code) → clipboard only,
+    // never prompt a modal that would open a null URL.
+    if (!deepLink) {
+      await this._copyPromptToClipboard(prompt);
+      return;
     }
+
+    // R8 / Decision D: confirmation gate before opening the deeplink. Show a
+    // bounded preview of the prompt; the full prompt stays reachable via "Copy
+    // full prompt". The deeplink opens ONLY on explicit "Open".
+    const preview = buildPreview(prompt, PROMPT_PREVIEW_MAX);
+    const choice = await vscode.window.showInformationMessage(
+      preview,
+      { modal: true },
+      "Open",
+      "Copy full prompt",
+      "Cancel"
+    );
+
+    if (choice === "Open") {
+      // R8-S1
+      try {
+        await vscode.env.openExternal(vscode.Uri.parse(deepLink));
+      } catch (err) {
+        await this._copyPromptToClipboard(prompt);
+      }
+      return;
+    }
+
+    if (choice === "Copy full prompt") {
+      // R8-S3
+      await this._copyPromptToClipboard(prompt);
+      return;
+    }
+
+    // R8-S2: "Cancel" or dismissed (undefined) → no external open, no-op.
+  }
+
+  private async _copyPromptToClipboard(prompt: string) {
+    await vscode.env.clipboard.writeText(prompt);
+    vscode.window.showInformationMessage(
+      "Prompt copied to clipboard. Press Cmd+L and paste to start a chat."
+    );
   }
 
   private _update(data: DiffExplanation) {
@@ -112,10 +155,12 @@ export class DiffExplanationPanel {
   }
 
   private _getHtmlContent(data: DiffExplanation): string {
-    const { title, summary, diff, annotations, editor } = data;
+    const { title, summary, diff, annotations } = data;
 
     const escapedDiff = this._escapeForJs(diff);
     const annotationsJson = JSON.stringify(annotations);
+    // Editor logo comes from the active adapter (R9), not a runtime data field.
+    const editorLogoJson = JSON.stringify(this._adapter.logo);
     type DiffView = "side-by-side" | "line-by-line";
     const diffStyle = "side-by-side" as DiffView;
     const isActiveView = (view: DiffView): string =>
@@ -484,12 +529,8 @@ export class DiffExplanationPanel {
       });
     });
 
-    const CURSOR_LOGO = '<svg fill="none" height="16" width="16" viewBox="0 0 22 22"><g clip-path="url(#a)" fill="currentColor"><path d="M19.162 5.452 10.698.565a.88.88 0 0 0-.879 0L1.356 5.452a.74.74 0 0 0-.37.64v9.853a.74.74 0 0 0 .37.64l8.464 4.887a.879.879 0 0 0 .879 0l8.464-4.886a.74.74 0 0 0 .37-.64V6.091a.74.74 0 0 0-.37-.64Zm-.531 1.035L10.46 20.639c-.055.095-.201.056-.201-.055v-9.266a.52.52 0 0 0-.26-.45L1.975 6.237c-.096-.056-.057-.202.054-.202h16.34c.233 0 .378.252.262.453Z"/></g></svg>';
-
-    const VSCODE_LOGO = '<svg fill="none" height="16" width="16" viewBox="0 0 24 24"><path fill="currentColor" d="M17.583 3.104l-5.477 4.984-5.45-4.239-2.656 1.27v13.762l2.656 1.27 5.45-4.239 5.477 4.984L21 18.986V5.014l-3.417-1.91zM5.5 16.5v-9l3.5 4.5-3.5 4.5zm7.5-4.5l-5 4.5V7.5l5 4.5zm5.5 4.5l-3.5-4.5 3.5-4.5v9z"/></svg>';
-
-    const currentEditor = '${editor || "cursor"}';
-    const EDITOR_LOGO = currentEditor === 'cursor' ? CURSOR_LOGO : VSCODE_LOGO;
+    // Logo supplied by the active EditorAdapter (R9); no runtime editor branch.
+    const EDITOR_LOGO = ${editorLogoJson};
 
     function renderActions(actions) {
       if (!actions || actions.length === 0) return '';
