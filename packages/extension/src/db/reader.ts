@@ -4,6 +4,7 @@ import type { SqlJsStatic, Database } from "sql.js";
 import {
   RawReviewRowSchema,
   RawAnnotationRowSchema,
+  RawReviewSummaryRowSchema,
   type RawReviewRow,
   type RawAnnotationRow,
 } from "./schema.js";
@@ -30,8 +31,28 @@ export interface ReviewBundle {
   annotations: RawAnnotationRow[];
 }
 
+// Lightweight summary for the review-history list (Slice 5). Carries no `diff`.
+export interface ReviewSummary {
+  id: number;
+  title: string;
+  created_at: number;
+  project_name: string | null;
+  summary: string | null;
+}
+
+export interface ListReviewsOptions {
+  projectName: string | null;
+  limit: number;
+}
+
 export interface ReviewReader {
   getReview(id: number): Promise<ReviewBundle | null>;
+  // listReviews skips individual invalid rows (one corrupt historical row must
+  // not blank the whole list), whereas getReview ABORTS the whole read on any
+  // invalid row (a target review must never render partially). Deliberate,
+  // documented difference — see ADR-5. Also opens the DB fresh per call (ADR-6)
+  // with NO retry loop (history browsing is not a read-after-write race).
+  listReviews(options: ListReviewsOptions): Promise<ReviewSummary[]>;
 }
 
 const RETRY_DELAY_MS = 100;
@@ -98,6 +119,52 @@ export function createReviewReader(
     }
   }
 
+  async function listReviewsOnce(
+    projectName: string,
+    limit: number
+  ): Promise<ReviewSummary[]> {
+    let bytes: Buffer;
+    try {
+      bytes = await fs.readFile(dbPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      console.error("[vibelens] failed to read DB file for listReviews:", err);
+      return [];
+    }
+
+    const SQL = await getSqlJs();
+    let db: Database | null = null;
+    try {
+      db = new SQL.Database(bytes);
+      // Column list explicit (no diff); idx_reviews_project_created covers it.
+      const stmt = db.prepare(
+        "SELECT id, title, summary, project_name, created_at FROM reviews WHERE project_name = ? ORDER BY created_at DESC LIMIT ?"
+      );
+      stmt.bind([projectName, limit]);
+
+      const summaries: ReviewSummary[] = [];
+      while (stmt.step()) {
+        const raw = stmt.getAsObject();
+        const parsed = RawReviewSummaryRowSchema.safeParse(raw);
+        if (parsed.success) {
+          summaries.push(parsed.data);
+        } else {
+          // Skip the single bad row (ADR-5) — do NOT abort the whole list.
+          console.error("[vibelens] skipping invalid review summary row:", parsed.error);
+        }
+      }
+      stmt.free();
+      return summaries;
+    } catch (err) {
+      console.error("[vibelens] failed to list reviews:", err);
+      return [];
+    } finally {
+      db?.close();
+    }
+  }
+
   return {
     async getReview(id: number): Promise<ReviewBundle | null> {
       const first = await readOnce(id);
@@ -105,6 +172,13 @@ export function createReviewReader(
       // Read-after-signal race guard: a single retry after 100ms.
       await delay(RETRY_DELAY_MS);
       return readOnce(id);
+    },
+
+    async listReviews(options: ListReviewsOptions): Promise<ReviewSummary[]> {
+      // No active project → empty history without opening the DB (cheap+correct).
+      // (WHERE project_name = NULL matches no rows in SQLite anyway.)
+      if (options.projectName === null) return [];
+      return listReviewsOnce(options.projectName, options.limit);
     },
   };
 }
