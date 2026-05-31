@@ -3,8 +3,22 @@ import { DiffExplanation, Annotation, Action } from "./types";
 import { buildCsp, getNonce } from "./webview/csp.js";
 import { buildPreview } from "./webview/confirmGate.js";
 import { type IEditorAdapter } from "./editor/adapter.js";
+import {
+  type ReviewReader,
+  type ReviewSummary,
+} from "./db/reader.js";
+import { mapHistoricalReview } from "./db/mapRow.js";
 
 const PROMPT_PREVIEW_MAX = 500;
+const HISTORY_LIMIT = 20;
+
+// Flat context threaded into the panel so it can list + re-open past reviews
+// (ADR-1). DiffExplanation carries no id/project_name, so these travel here.
+export interface PanelContext {
+  reviewId: number | null;
+  projectName: string | null;
+  reader: ReviewReader;
+}
 
 export class DiffExplanationPanel {
   public static currentPanel: DiffExplanationPanel | undefined;
@@ -12,20 +26,28 @@ export class DiffExplanationPanel {
   private readonly _extensionUri: vscode.Uri;
   private _adapter: IEditorAdapter;
   private _disposables: vscode.Disposable[] = [];
+  private _currentReviewId: number | null;
+  private _projectName: string | null;
+  private _reader: ReviewReader;
 
   public static createOrShow(
     extensionUri: vscode.Uri,
     data: DiffExplanation,
-    adapter: IEditorAdapter
+    adapter: IEditorAdapter,
+    context: PanelContext
   ): void {
     const column = vscode.window.activeTextEditor
       ? vscode.window.activeTextEditor.viewColumn
       : undefined;
 
     if (DiffExplanationPanel.currentPanel) {
-      DiffExplanationPanel.currentPanel._panel.reveal(column);
-      DiffExplanationPanel.currentPanel._adapter = adapter;
-      DiffExplanationPanel.currentPanel._update(data);
+      const existing = DiffExplanationPanel.currentPanel;
+      existing._panel.reveal(column);
+      existing._adapter = adapter;
+      existing._currentReviewId = context.reviewId;
+      existing._projectName = context.projectName;
+      existing._reader = context.reader;
+      void existing._update(data);
       return;
     }
 
@@ -44,7 +66,8 @@ export class DiffExplanationPanel {
       panel,
       extensionUri,
       data,
-      adapter
+      adapter,
+      context
     );
   }
 
@@ -52,13 +75,17 @@ export class DiffExplanationPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     data: DiffExplanation,
-    adapter: IEditorAdapter
+    adapter: IEditorAdapter,
+    context: PanelContext
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._adapter = adapter;
+    this._currentReviewId = context.reviewId;
+    this._projectName = context.projectName;
+    this._reader = context.reader;
 
-    this._update(data);
+    void this._update(data);
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -80,6 +107,25 @@ export class DiffExplanationPanel {
         const prompt = message.prompt as string;
         this._executeAction(prompt);
         break;
+      case "loadReview": {
+        const id = message.id;
+        if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return;
+        void this._loadReview(id);
+        break;
+      }
+    }
+  }
+
+  private async _loadReview(id: number): Promise<void> {
+    try {
+      const bundle = await this._reader.getReview(id);
+      // Unknown/deleted id → no-op, panel unchanged (silent, keeps browsing smooth).
+      if (!bundle) return;
+      const explanation = mapHistoricalReview(bundle.review, bundle.annotations);
+      this._currentReviewId = bundle.review.id;
+      await this._update(explanation);
+    } catch (err) {
+      console.error("[vibelens] failed to load review from history:", err);
     }
   }
 
@@ -150,12 +196,36 @@ export class DiffExplanationPanel {
     );
   }
 
-  private _update(data: DiffExplanation) {
+  private async _update(data: DiffExplanation): Promise<void> {
+    // Refresh the history list against the active project BEFORE building HTML.
+    // listReviews never throws (returns [] on any error), so this is safe.
+    const summaries = await this._reader.listReviews({
+      projectName: this._projectName,
+      limit: HISTORY_LIMIT,
+    });
     this._panel.title = data.title;
-    this._panel.webview.html = this._getHtmlContent(data);
+    this._panel.webview.html = this._getHtmlContent(data, summaries);
   }
 
-  private _getHtmlContent(data: DiffExplanation): string {
+  private _renderHistoryList(summaries: ReviewSummary[]): string {
+    if (summaries.length === 0) {
+      return `<p class="history-empty">No previous reviews for this project.</p>`;
+    }
+    return summaries
+      .map((s) => {
+        const isActive = s.id === this._currentReviewId;
+        const activeClass = isActive ? " active" : "";
+        const ariaCurrent = isActive ? ` aria-current="true"` : "";
+        const date = new Date(s.created_at).toLocaleString();
+        return `<button class="history-row${activeClass}" data-review-id="${s.id}"${ariaCurrent}>
+          <span class="history-row-title">${this._escapeHtml(s.title)}</span>
+          <time class="history-row-date">${this._escapeHtml(date)}</time>
+        </button>`;
+      })
+      .join("");
+  }
+
+  private _getHtmlContent(data: DiffExplanation, summaries: ReviewSummary[]): string {
     const { title, summary, diff, annotations } = data;
 
     const escapedDiff = this._escapeForJs(diff);
@@ -260,6 +330,87 @@ export class DiffExplanationPanel {
     .view-toggle-btn svg {
       width: 14px;
       height: 14px;
+    }
+
+    .history-toggle {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--vscode-descriptionForeground, #8b949e);
+      background: var(--vscode-input-background, #21262d);
+      border: 1px solid var(--vscode-input-border, rgba(240, 246, 252, 0.1));
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .history-toggle:hover {
+      color: var(--vscode-editor-foreground, #e6edf3);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .history-pane {
+      display: none;
+      max-width: 1400px;
+      margin: 16px auto 0;
+      padding: 0 24px;
+    }
+
+    .history-pane.open {
+      display: block;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px;
+      background: var(--vscode-input-background, #21262d);
+      border: 1px solid var(--vscode-input-border, rgba(240, 246, 252, 0.1));
+      border-radius: 8px;
+    }
+
+    .history-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      padding: 8px 12px;
+      text-align: left;
+      font-size: 13px;
+      color: var(--vscode-editor-foreground, #e6edf3);
+      background: transparent;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .history-row:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .history-row.active {
+      background: var(--vscode-button-secondaryBackground, #30363d);
+      font-weight: 600;
+    }
+
+    .history-row-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .history-row-date {
+      flex-shrink: 0;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground, #8b949e);
+    }
+
+    .history-empty {
+      padding: 12px;
+      font-size: 13px;
+      color: var(--vscode-descriptionForeground, #8b949e);
     }
 
     .summary {
@@ -416,6 +567,7 @@ export class DiffExplanationPanel {
   <header class="header">
     <h1 class="header-title">${this._escapeHtml(title)}</h1>
     <div class="header-actions">
+      <button class="history-toggle" id="history-toggle">History</button>
       <div class="view-toggle">
         <button class="view-toggle-btn${isActiveView("line-by-line")}" data-view="line-by-line">
           <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -432,6 +584,12 @@ export class DiffExplanationPanel {
       </div>
     </div>
   </header>
+
+  <aside class="history-pane" id="history-pane">
+    <div class="history-list">
+      ${this._renderHistoryList(summaries)}
+    </div>
+  </aside>
 
   ${summary ? `
   <div class="summary">
@@ -454,6 +612,36 @@ export class DiffExplanationPanel {
     const diffString = \`${escapedDiff}\`;
     const annotations = ${annotationsJson};
     let currentView = '${diffStyle}';
+
+    // --- History pane (Slice 5) ---
+    // Read persisted open-state SYNCHRONOUSLY before first paint to avoid a
+    // flicker when a row click triggers a full host re-render. State survives
+    // the full HTML replacement via getState/setState (retainContextWhenHidden
+    // alone does not cover full re-render).
+    (function initHistoryPane() {
+      const persisted = vscode.getState() || {};
+      const historyPane = document.getElementById('history-pane');
+      if (persisted.historyOpen && historyPane) {
+        historyPane.classList.add('open');
+      }
+      const toggle = document.getElementById('history-toggle');
+      if (toggle && historyPane) {
+        toggle.addEventListener('click', () => {
+          const open = historyPane.classList.toggle('open');
+          const state = vscode.getState() || {};
+          state.historyOpen = open;
+          vscode.setState(state);
+        });
+      }
+      document.querySelectorAll('.history-row').forEach((row) => {
+        row.addEventListener('click', () => {
+          const id = parseInt(row.dataset.reviewId, 10);
+          if (Number.isInteger(id) && id > 0) {
+            vscode.postMessage({ command: 'loadReview', id: id });
+          }
+        });
+      });
+    })();
 
     function splitDiffByFile(diff) {
       const files = [];
