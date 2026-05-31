@@ -35,16 +35,24 @@
   },
   "scripts": {
     "vscode:prepublish": "pnpm run build",
-    "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "build": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node && pnpm run copy:wasm",
+    "copy:wasm": "node scripts/copy-wasm.mjs",
     "compile": "pnpm run build",
     "watch": "esbuild src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
     "dev": "node dev/server.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies"
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
+    "@types/sql.js": "^1.4.9",
     "@types/vscode": "^1.85.0",
     "esbuild": "^0.20.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^4.1.7"
   }
 }
