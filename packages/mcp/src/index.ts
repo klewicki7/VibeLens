@@ -8,53 +8,26 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { homedir } from "os";
-import { join } from "path";
-import { writeFileSync, existsSync, mkdirSync } from "fs";
+import { getDb } from "./db/connection.js";
+import { detectProject } from "./project.js";
+import { createShowDiffExplanationHandler } from "./handler.js";
+import { TOOL_INPUT_JSON_SCHEMA, MAX_DIFF_BYTES } from "./schema.js";
 
-// VS Code extension integration
-const WATCH_DIR = join(homedir(), ".vibelens");
-const WATCH_FILE = join(WATCH_DIR, "pending.json");
+// ---------------------------------------------------------------------------
+// Production handler — wired with real DB singleton, real project detection,
+// real clock, and the schema-derived byte limit.
+// ---------------------------------------------------------------------------
 
-type Editor = "vscode" | "cursor";
+const showDiffHandler = createShowDiffExplanationHandler({
+  getDb,
+  detectProject,
+  now: () => Date.now(),
+  maxDiffBytes: MAX_DIFF_BYTES,
+});
 
-type Action = {
-  label: string;
-  prompt: string;
-};
-
-type Annotation = {
-  file: string;
-  line?: number;
-  explanation: string;
-  actions?: Action[];
-};
-
-type DiffExplanationData = {
-  title: string;
-  summary?: string;
-  diff: string;
-  annotations: Annotation[];
-  editor: Editor;
-  workspacePath?: string;
-  timestamp: number;
-};
-
-type ShowDiffExplanationArgs = {
-  title: string;
-  summary?: string;
-  diff: string;
-  annotations?: Annotation[];
-  editor?: Editor;
-  workspacePath?: string;
-};
-
-function writeToExtension(data: DiffExplanationData): void {
-  if (!existsSync(WATCH_DIR)) {
-    mkdirSync(WATCH_DIR, { recursive: true });
-  }
-  writeFileSync(WATCH_FILE, JSON.stringify(data, null, 2), "utf-8");
-}
+// ---------------------------------------------------------------------------
+// Server
+// ---------------------------------------------------------------------------
 
 const server = new Server(
   {
@@ -68,6 +41,10 @@ const server = new Server(
     },
   }
 );
+
+// ---------------------------------------------------------------------------
+// Prompt constant
+// ---------------------------------------------------------------------------
 
 const VIBELENS_PROMPT = `Explain code changes visually using the VibeLens extension.
 
@@ -119,6 +96,10 @@ Example action:
 
 Each annotation can have multiple actions if there are several ways to improve that specific piece of code.`;
 
+// ---------------------------------------------------------------------------
+// Request handlers
+// ---------------------------------------------------------------------------
+
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -129,76 +110,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 Use this tool after analyzing code changes to present the diff visually with your explanations.
 
 The tool will:
-1. Send the diff and annotations to the VS Code/Cursor extension
-2. Open a panel with syntax-highlighted diff (side-by-side or unified view)
-3. Display your annotations inline with action buttons`,
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            title: {
-              type: "string",
-              description: "Title for the explanation (e.g., 'Add user authentication')",
-            },
-            summary: {
-              type: "string",
-              description: "High-level summary of the changes",
-            },
-            diff: {
-              type: "string",
-              description: "The raw git diff output as a string (unified diff format). IMPORTANT: Pass the actual diff content, not a file path or shell command.",
-            },
-            annotations: {
-              type: "array",
-              description: "Annotations explaining specific parts of the diff",
-              items: {
-                type: "object",
-                properties: {
-                  file: {
-                    type: "string",
-                    description: "File path the annotation refers to",
-                  },
-                  line: {
-                    type: "number",
-                    description: "Line number in the new file (optional)",
-                  },
-                  explanation: {
-                    type: "string",
-                    description: "Your explanation of this change",
-                  },
-                  actions: {
-                    type: "array",
-                    description: "Reviewer actions - specific suggestions for improvements",
-                    items: {
-                      type: "object",
-                      properties: {
-                        label: {
-                          type: "string",
-                          description: "Short action label (e.g., 'Extract to helper')",
-                        },
-                        prompt: {
-                          type: "string",
-                          description: "Full context: what to change, code snippet, and why",
-                        },
-                      },
-                      required: ["label", "prompt"],
-                    },
-                  },
-                },
-                required: ["file", "explanation"],
-              },
-            },
-            editor: {
-              type: "string",
-              enum: ["vscode", "cursor"],
-              description: "Which editor you're using",
-            },
-            workspacePath: {
-              type: "string",
-              description: "Absolute path to the workspace/project folder. Used to show the panel only in the correct editor window.",
-            },
-          },
-          required: ["title", "diff"],
-        },
+1. Save the diff and annotations to the local SQLite database
+2. Return a structured envelope with a reviewId for tracking`,
+        inputSchema: TOOL_INPUT_JSON_SCHEMA,
       },
     ],
   };
@@ -237,90 +151,27 @@ server.setRequestHandler(GetPromptRequestSchema, async (request) => {
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name === "show_diff_explanation") {
-    const args = request.params.arguments as ShowDiffExplanationArgs;
-
-    if (!args.title || !args.diff) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: "Error: 'title' and 'diff' are required",
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    // Detect if diff looks like a shell command instead of actual diff content
-    const shellPatterns = [
-      /^\$\(.*\)$/,           // $(cat file)
-      /^`.*`$/,               // `cat file`
-      /^cat\s+/,              // cat /path/to/file
-      /^<\s*\//,              // < /path/to/file
-    ];
-
-    const looksLikeShellCommand = shellPatterns.some(p => p.test(args.diff.trim()));
-    const looksLikeDiff = args.diff.includes('diff --git') ||
-                          args.diff.includes('@@') ||
-                          args.diff.includes('---') ||
-                          args.diff.includes('+++');
-
-    if (looksLikeShellCommand && !looksLikeDiff) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Error: The 'diff' parameter contains a shell command ("${args.diff.substring(0, 50)}...") instead of actual diff content.\n\nPlease pass the actual diff output as a string. Run the git diff command and include its output directly in the 'diff' parameter.`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    const timestamp = Date.now();
-    const annotationCount = args.annotations?.length || 0;
-    const editor = (args.editor || "cursor") as Editor;
-
-    // Write JSON for the extension
-    const extensionData: DiffExplanationData = {
-      title: args.title,
-      summary: args.summary,
-      diff: args.diff,
-      annotations: args.annotations || [],
-      editor: editor,
-      workspacePath: args.workspacePath,
-      timestamp,
-    };
-    writeToExtension(extensionData);
-
-    // Deep link to open the extension panel
-    // TODO(vibelens): update publisher once Kevin's Marketplace publisher exists
-    const deepLink = `${editor}://VladTansky.vibelens-extension/show`;
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: `Diff explanation ready${annotationCount > 0 ? ` with ${annotationCount} annotation${annotationCount === 1 ? "" : "s"}` : ""}.
-
-The panel should open automatically. If not, run "VibeLens: Show Panel" from the command palette.
-
-Deep link: ${deepLink}`,
-        },
-      ],
-    };
+    return showDiffHandler(request);
   }
 
   return {
     content: [
       {
         type: "text" as const,
-        text: `Unknown tool: ${request.params.name}`,
+        text: JSON.stringify({
+          ok: false,
+          error: "UNKNOWN",
+          message: `Unknown tool: ${request.params.name}`,
+        }),
       },
     ],
     isError: true,
   };
 });
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 async function main() {
   const transport = new StdioServerTransport();

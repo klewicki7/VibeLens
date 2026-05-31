@@ -79,15 +79,33 @@ export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 
 const DEFAULT_DEDUP_WINDOW_MS = 5000;
 
+export interface AnnotationHashInput {
+  file: string;
+  line?: number;
+  explanation: string;
+  actions?: Array<{ label: string; prompt: string }>;
+}
+
 export function computeContentHash(input: {
   title: string;
   diff: string;
   workspacePath?: string;
+  annotations?: AnnotationHashInput[];
 }): string {
+  // Stable serialization: sort annotations fields deterministically so that
+  // object property insertion order differences don't affect the hash.
+  const stableAnnotations = (input.annotations ?? []).map((ann) => ({
+    file: ann.file,
+    line: ann.line ?? null,
+    explanation: ann.explanation,
+    actions: (ann.actions ?? []).map((a) => ({ label: a.label, prompt: a.prompt })),
+  }));
+
   const stable = JSON.stringify({
     title: input.title,
     diff: input.diff,
     workspacePath: input.workspacePath ?? null,
+    annotations: stableAnnotations,
   });
   return createHash("sha256").update(stable).digest("hex");
 }
@@ -149,6 +167,7 @@ export function saveReview(
     title: parsed.title,
     diff: parsed.diff,
     workspacePath: parsed.workspacePath,
+    annotations: parsed.annotations,
   });
 
   // Dedup check: same hash within the time window
