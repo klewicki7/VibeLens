@@ -7,9 +7,9 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
-    "build:mcp": "npm run build -w packages/mcp",
-    "build:extension": "npm run compile -w packages/extension"
+    "build": "pnpm --filter \"./packages/*\" build",
+    "build:mcp": "pnpm --filter explain-changes-mcp build",
+    "build:extension": "pnpm --filter explain-changes-extension compile"
   },
   "author": "",
   "license": "MIT"

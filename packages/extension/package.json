@@ -5,6 +5,15 @@
   "version": "0.0.1",
   "publisher": "VladTansky",
   "license": "MIT",
+  "author": "Kevin Lewicki <kevin@flexways.com>",
+  "contributors": [
+    "Vlad Tansky (original explain-changes-mcp)"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/klewicki7/VibeLens.git",
+    "directory": "packages/extension"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
