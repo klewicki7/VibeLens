@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run VibeLens Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/packages/extension"],
+      "outFiles": ["${workspaceFolder}/packages/extension/out/**/*.js"],
+      "env": {
+        "VIBELENS_MCP_DIST": "${workspaceFolder}/packages/mcp/dist/index.js"
+      }
+    }
+  ]
+}
