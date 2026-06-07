@@ -8,6 +8,10 @@ import { createReviewReader, type ReviewReader } from "./db/reader";
 import { mapToDiffExplanation } from "./db/mapRow";
 import { resolveAdapter, type IEditorAdapter } from "./editor/adapter";
 import { mergeMcpConfig } from "./config/mcpConfig";
+import { mergeVscodeMcp } from "./config/vscodeMcp";
+import { mergeZedMcp } from "./config/zedMcp";
+import { mergeCodexToml } from "./config/codexToml";
+import { getMcpTargets } from "./config/mcpTargets";
 import { resolveMcpCommand } from "./config/mcpCommand";
 import { mergeClaudeSettings } from "./config/claudeSettings";
 import { mergeCursorHooks } from "./config/hooksConfig";
@@ -32,65 +36,6 @@ let editorAdapter: IEditorAdapter | null = null;
 
 let fileWatcher: fs.FSWatcher | null = null;
 let lastTimestamp = 0;
-
-// Auto-install MCP server in the editor's config (A1 hardening, spec R10).
-//
-// The pure merge lives in `mergeMcpConfig`: read-parse-or-ABORT (never silently
-// reset a malformed file) + scoped mutation of only `mcpServers.vibelens`. Here
-// we only do IO: read the raw file (null on ENOENT), delegate the decision, then
-// surface errors or write atomically (temp file + rename). Returns true only
-// when the file was actually (re)written.
-async function ensureMcpServerInstalled(
-  mcpConfigPath: string,
-  command: string,
-  args: string[]
-): Promise<boolean> {
-  let existingRaw: string | null = null;
-  try {
-    existingRaw = fs.readFileSync(mcpConfigPath, "utf-8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-      console.error("Failed to read MCP config:", err);
-      vscode.window.showErrorMessage(
-        "VibeLens: could not read the MCP config file"
-      );
-      return false;
-    }
-    // ENOENT → no file yet; treat as a fresh config.
-  }
-
-  const result = mergeMcpConfig(existingRaw, { command, args });
-
-  if ("error" in result) {
-    // Read-parse-or-ABORT (R10-S1): surface and do NOT write.
-    vscode.window.showErrorMessage(
-      `VibeLens: your MCP config could not be updated — ${result.error}. ` +
-        `Please fix ${mcpConfigPath} manually.`
-    );
-    return false;
-  }
-
-  if ("noop" in result) {
-    // Already configured correctly (R10-S4): no rewrite.
-    return false;
-  }
-
-  try {
-    fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
-    // Atomic write: write a temp file then rename so a crash can never leave a
-    // half-written config behind.
-    const tmpPath = `${mcpConfigPath}.${process.pid}.tmp`;
-    fs.writeFileSync(tmpPath, result.json, "utf-8");
-    fs.renameSync(tmpPath, mcpConfigPath);
-    return true;
-  } catch (err) {
-    console.error("Failed to write MCP config:", err);
-    vscode.window.showErrorMessage(
-      "VibeLens: could not write the MCP config file"
-    );
-    return false;
-  }
-}
 
 // Atomic write: temp file + rename so a crash can never leave a half-written
 // file behind (shared Slice-3 pattern). Throws on failure so callers in
@@ -237,19 +182,6 @@ function guardedInstall(label: string, step: () => void): void {
   }
 }
 
-// Async variant of {@link guardedInstall} for steps that await IO (R18).
-async function guardedInstallAsync(
-  label: string,
-  step: () => Promise<void>
-): Promise<void> {
-  try {
-    await step();
-  } catch (err) {
-    console.error(`VibeLens: ${label} install failed:`, err);
-    vscode.window.showErrorMessage(`VibeLens: ${label} setup failed — ${String(err)}`);
-  }
-}
-
 export async function activate(context: vscode.ExtensionContext) {
   const adapter = resolveAdapter(vscode.env.appName);
   editorAdapter = adapter;
@@ -267,29 +199,73 @@ export async function activate(context: vscode.ExtensionContext) {
     DB_PATH
   );
 
+  // Workspace root used both for MCP project targets (below) and for rule files
+  // (step 4). Resolved once here so both blocks share the same value.
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+
   // --- Enforcement install (design Decision E): four INDEPENDENT guarded steps.
   // Each runs under its own try/catch so one failure (e.g. missing ~/.claude on
   // a Cursor-only machine) never aborts the others or activate() itself (R18).
   // The bundled hook script is installed BEFORE any config that references its
   // path so the registered command always points at a real file.
 
-  // (1) MCP dev-shim: prefer a locally built dist over `npx -y vibelens-mcp`
-  // (R16) and flow it through the existing mergeMcpConfig path (R16.3).
-  const mcpConfigPath = adapter.getMcpConfigPath();
-  if (mcpConfigPath) {
-    await guardedInstallAsync("MCP server", async () => {
-      const { command, args } = resolveMcpCommand({
-        distPath: process.env.VIBELENS_MCP_DIST,
-        siblingDistExists: (p) =>
-          fs.existsSync(path.join(context.extensionUri.fsPath, p)),
-      });
-      const wasInstalled = await ensureMcpServerInstalled(mcpConfigPath, command, args);
-      if (wasInstalled) {
-        vscode.window.showInformationMessage(
-          `VibeLens MCP server has been configured. Restart ${adapter.name} to enable it.`
-        );
-      }
+  // (1) MCP fan-out: install the VibeLens MCP server in EVERY detected AI agent
+  // config (global + project). Each target runs under its own guardedInstall so
+  // one failure never aborts the others (R18). The correct serializer is chosen
+  // by target.format; idempotency, ABORT-on-corrupt, and atomic writes are
+  // preserved for every target.
+  {
+    const { command, args } = resolveMcpCommand({
+      distPath: process.env.VIBELENS_MCP_DIST,
+      siblingDistExists: (p) =>
+        fs.existsSync(path.join(context.extensionUri.fsPath, p)),
     });
+
+    const targets = getMcpTargets(workspaceRoot, {
+      homedir: os.homedir(),
+      dirExists: (p) => fs.existsSync(p),
+    });
+
+    const installedNames: string[] = [];
+
+    for (const target of targets.filter((t) => t.present)) {
+      guardedInstall(`MCP: ${target.name}`, () => {
+        let wrote = false;
+
+        if (target.format === "toml-codex") {
+          // TOML path: use applyJsonMerge but the merge fn returns TOML text
+          // in the `json` field (design decision: reuse the driver field name).
+          wrote = applyJsonMerge(target.name, target.configPath, (raw) =>
+            mergeCodexToml(raw, { command, args })
+          );
+        } else if (target.format === "json-servers") {
+          wrote = applyJsonMerge(target.name, target.configPath, (raw) =>
+            mergeVscodeMcp(raw, { command, args })
+          );
+        } else if (target.format === "json-contextServers") {
+          wrote = applyJsonMerge(target.name, target.configPath, (raw) =>
+            mergeZedMcp(raw, { command, args })
+          );
+        } else {
+          // json-mcpServers: Cursor, Windsurf, Gemini, Cline, Roo Code, Claude Code
+          wrote = applyJsonMerge(target.name, target.configPath, (raw) =>
+            mergeMcpConfig(raw, { command, args })
+          );
+        }
+
+        if (wrote) {
+          installedNames.push(target.name);
+        }
+      });
+    }
+
+    // Single summary message after all installs: only show when ≥1 target was
+    // actually (re)written. Lists the agent names so the user knows what changed.
+    if (installedNames.length > 0) {
+      vscode.window.showInformationMessage(
+        `VibeLens MCP configured in ${installedNames.length} agent(s): ${installedNames.join(", ")}. Restart the agent to activate it.`
+      );
+    }
   }
 
   // (2) Cursor hooks: install the hook asset FIRST, then register a managed
@@ -325,7 +301,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // (4) Fallback rule files: marker-delimited block in the workspace CLAUDE.md,
   // and the .cursor/rules/vibelens.mdc template under Cursor (R14.2, R15).
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  // workspaceRoot was resolved at the top of activate() for the MCP fan-out.
   if (workspaceRoot) {
     guardedInstall("CLAUDE.md rule", () => {
       applyTextSection(path.join(workspaceRoot, "CLAUDE.md"), VIBELENS_RULE_BODY);

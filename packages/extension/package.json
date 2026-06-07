@@ -46,6 +46,7 @@
   },
   "dependencies": {
     "diff2html": "^3.4.56",
+    "smol-toml": "^1.6.1",
     "sql.js": "^1.13.0",
     "zod": "^4.4.3"
   },

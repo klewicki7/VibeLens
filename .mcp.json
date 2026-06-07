@@ -1,10 +1,4 @@
 {
-  "code-explainer": {
-    "command": "node",
-    "args": [
-      "/Users/vladta/Projects/code-explainer-mcp/dist/index.js"
-    ]
-  },
   "mcpServers": {
     "vibelens": {
       "command": "npx",
