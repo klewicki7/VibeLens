@@ -4,21 +4,31 @@
   "description": "VibeLens MCP tool for AI to visualize code changes with inline annotations in VS Code/Cursor",
   "type": "module",
   "main": "dist/index.js",
+  "mcpName": "io.github.klewicki7/vibelens-mcp",
   "author": "Kevin Lewicki <kevin@flexways.com>",
   "license": "MIT",
   "contributors": [
     "Vlad Tansky (original explain-changes-mcp)"
   ],
+  "homepage": "https://github.com/klewicki7/VibeLens#readme",
+  "bugs": {
+    "url": "https://github.com/klewicki7/VibeLens/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/klewicki7/VibeLens.git",
+    "url": "git+https://github.com/klewicki7/VibeLens.git",
     "directory": "packages/mcp"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "bin": {
     "vibelens-mcp": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
     "start": "node dist/index.js",
     "prepublishOnly": "pnpm run build",
     "test": "vitest run",

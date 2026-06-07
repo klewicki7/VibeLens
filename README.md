@@ -1,12 +1,10 @@
 <div align="center">
 
-# Explain Changes
+# VibeLens
 
 **AI peer review for your code changes.**
 
-Just like humans review each other's PRs, your AI reviews its own changes — with inline annotations that appear directly in a VS Code/Cursor panel.
-
-![Screenshot](assets/screenshot.png)
+Just like humans review each other's PRs, your AI reviews its own changes with inline annotations that appear directly in a VS Code/Cursor panel.
 
 </div>
 
@@ -14,24 +12,19 @@ Just like humans review each other's PRs, your AI reviews its own changes — wi
 
 ## Why AI Peer Review?
 
-When humans write code, we do peer review. When AI writes code, we... scroll through chat hoping we understood what it did?
+When humans write code, we do peer review. When AI writes code, we often scroll through chat hoping we understood what changed.
 
-**The asymmetry is broken.** AI generates multi-file changes in seconds, but understanding those changes still requires you to:
-- Read the chat explanation
-- Open the diff
-- Mentally map one to the other
-
-This extension gives AI the same workflow humans use: **review the diff, annotate the changes, explain the reasoning**.
+VibeLens gives AI the same workflow humans use: review the diff, annotate the changes, and explain the reasoning next to the code.
 
 ---
 
 ## How It Works
 
-```
-AI makes changes → AI reviews its own diff → Panel opens with annotated diff
+```text
+AI makes changes -> AI reviews its own diff -> VibeLens opens an annotated panel
 ```
 
-The AI calls `show_diff_explanation` after completing a task. You get a visual diff with inline annotations — exactly where a human reviewer would leave comments.
+The AI calls the `show_diff_explanation` MCP tool after completing a task. The MCP server stores the review locally, and the VS Code/Cursor extension renders the diff with inline annotations.
 
 Action buttons let you send improvement suggestions directly to Cursor chat.
 
@@ -39,41 +32,36 @@ Action buttons let you send improvement suggestions directly to Cursor chat.
 
 ## Features
 
-- **Visual diff** — Side-by-side or unified view powered by diff2html
-- **Inline annotations** — Review comments appear directly after relevant code lines
-- **Action buttons** — Click to send prompts to Cursor chat ("Refactor this", "Add tests")
-- **Click to open** — File names link directly to the source
-- **Workspace-aware** — Only shows in the window matching your project
-- **Auto-install MCP** — Extension configures the MCP server automatically
+- **Visual diff**: Side-by-side or unified view powered by diff2html.
+- **Inline annotations**: Review comments appear directly after relevant code lines.
+- **Action buttons**: Click to send prompts to Cursor chat, such as refactors or test suggestions.
+- **Click to open**: File names link directly to the source.
+- **Workspace-aware**: Only shows in the window matching your project.
+- **Auto-configured MCP**: The extension configures `vibelens-mcp` for supported AI tools.
 
 ---
 
 ## Installation
 
-### 1. Install the Extension
+### VS Code
 
-Download the `.vsix` from [releases](https://github.com/vltansky/explain-changes-mcp/releases) and install:
+Install `kevcode.vibelens-extension` from the Visual Studio Marketplace once published.
 
-**VS Code / Cursor:**
-- Extensions → `...` → "Install from VSIX..."
+### Cursor
 
-**The extension automatically configures the MCP server** in Cursor and Windsurf on first activation.
+Install `kevcode.vibelens-extension` from Cursor's extension marketplace once the Open VSX listing syncs.
 
-### 2. Use with AI
+### VSIX
 
-In Cursor chat, use the slash command:
+Download the `.vsix` from [GitHub Releases](https://github.com/klewicki7/VibeLens/releases) and install it from the Extensions view with "Install from VSIX...".
 
-```
-/explain-changes
-```
-
-This triggers the MCP prompt which guides the AI to analyze your changes and call the tool automatically.
+The extension automatically configures the MCP server on first activation where supported.
 
 ---
 
 ## Manual MCP Configuration
 
-If auto-install doesn't work, configure manually:
+If auto-configuration does not work, add `vibelens-mcp` manually to your MCP client.
 
 <details>
 <summary><b>Cursor</b></summary>
@@ -83,9 +71,9 @@ Add to `~/.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "explain-changes": {
+    "vibelens": {
       "command": "npx",
-      "args": ["-y", "explain-changes-mcp"]
+      "args": ["-y", "vibelens-mcp"]
     }
   }
 }
@@ -101,9 +89,9 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "explain-changes": {
+    "vibelens": {
       "command": "npx",
-      "args": ["-y", "explain-changes-mcp"]
+      "args": ["-y", "vibelens-mcp"]
     }
   }
 }
@@ -119,9 +107,9 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 ```json
 {
   "mcpServers": {
-    "explain-changes": {
+    "vibelens": {
       "command": "npx",
-      "args": ["-y", "explain-changes-mcp"]
+      "args": ["-y", "vibelens-mcp"]
     }
   }
 }
@@ -142,21 +130,17 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ## Architecture
 
-```
-┌─────────────────┐     writes JSON      ┌─────────────────┐
-│   MCP Server    │ ──────────────────▶  │ ~/.explain-     │
-│                 │                      │ changes/        │
-│ show_diff_      │                      │ pending.json    │
-│ explanation     │                      └────────┬────────┘
-└─────────────────┘                               │
-                                                  │ watches
-                                                  ▼
-                                         ┌─────────────────┐
-                                         │  VS Code/Cursor │
-                                         │   Extension     │
-                                         │                 │
-                                         │  Webview Panel  │
-                                         └─────────────────┘
+```text
+MCP Server                    VS Code/Cursor Extension
+     |                              |
+     | writes review data           | watches
+     | ~/.vibelens/                 | ~/.vibelens/
+     |                              |
+     +----------------------------->|
+                                    |
+                                    v
+                              Webview Panel
+                         (diff + annotations)
 ```
 
 ---
@@ -165,20 +149,28 @@ Add to `~/.codeium/windsurf/mcp_config.json`:
 
 ```bash
 # Install dependencies
-npm install
+pnpm install
 
 # Build all packages
-npm run build
+pnpm run build
 
 # Build extension only
-npm run build:extension
+pnpm run build:extension
 
 # Build MCP only
-npm run build:mcp
+pnpm run build:mcp
 
 # Package extension as .vsix
-cd packages/extension && npm run package
+pnpm --filter vibelens-extension package
 ```
+
+---
+
+## Publishing
+
+- **Extension**: Published as `kevcode.vibelens-extension` to VS Code Marketplace and Open VSX.
+- **MCP package**: Published to npm as `vibelens-mcp`.
+- **MCP Registry**: Registered as `io.github.klewicki7/vibelens-mcp`.
 
 ---
 

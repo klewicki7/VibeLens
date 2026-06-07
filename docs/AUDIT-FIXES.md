@@ -86,7 +86,7 @@ ciegamente en su contenido.
 - **Qué pasa:** escapa `\`, backtick y `$` pero no caracteres de control; el dev server tiene lógica distinta.
 - **Fix:** pasar el diff como dato (`JSON.stringify` + `data-*` o `postMessage`), no interpolado en el HTML.
 
-### M3 — `npx -y explain-changes-mcp` sin pin de versión
+### M3 — `npx -y vibelens-mcp` sin pin de versión
 - **Dónde:** `packages/extension/src/extension.ts:14`
 - **Qué pasa:** auto-config ejecuta el paquete npm sin fijar versión → ejecución de código no verificado.
 - **Fix:** pinear versión en la config generada; documentar el comando.

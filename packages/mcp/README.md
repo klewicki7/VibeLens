@@ -1,17 +1,17 @@
-# Explain Changes MCP Server
+# VibeLens MCP Server
 
 MCP server that provides the `show_diff_explanation` tool for visualizing code changes with AI annotations.
 
 ## Installation
 
 ```bash
-npx -y explain-changes-mcp
+npx -y vibelens-mcp
 ```
 
 Or install globally:
 
 ```bash
-npm install -g explain-changes-mcp
+npm install -g vibelens-mcp
 ```
 
 ## MCP Configuration
@@ -21,9 +21,9 @@ Add to your MCP client configuration:
 ```json
 {
   "mcpServers": {
-    "explain-changes": {
+    "vibelens": {
       "command": "npx",
-      "args": ["-y", "explain-changes-mcp"]
+      "args": ["-y", "vibelens-mcp"]
     }
   }
 }
@@ -31,7 +31,7 @@ Add to your MCP client configuration:
 
 ## Tool: `show_diff_explanation`
 
-Displays a git diff with AI-generated annotations in the Explain Changes extension panel.
+Displays a git diff with AI-generated annotations in the VibeLens extension panel.
 
 ### Parameters
 
@@ -84,9 +84,9 @@ Displays a git diff with AI-generated annotations in the Explain Changes extensi
 }
 ```
 
-## Prompt: `explain-changes`
+## Prompt: `vibelens`
 
-The MCP server also provides a prompt with instructions for explaining code changes. Reference it with `@explain-changes` in your chat.
+The MCP server also provides a prompt with instructions for explaining code changes. Reference it with `@vibelens` in your chat.
 
 The prompt guides the AI to:
 1. Get the diff from conversation context (or run `git diff` if needed)
@@ -96,13 +96,13 @@ The prompt guides the AI to:
 
 ## How It Works
 
-The MCP server writes to `~/.explain-changes/pending.json`. The companion VS Code/Cursor extension watches this file and displays the diff in a webview panel.
+The MCP server writes to `~/.vibelens/pending.json` and stores reviews in `~/.vibelens/vibelens.db`. The companion VS Code/Cursor extension watches this data and displays the diff in a webview panel.
 
 ```
 MCP Server                    Extension
      │                            │
      │ writes to                  │ watches
-     │ ~/.explain-changes/        │ ~/.explain-changes/
+     │ ~/.vibelens/               │ ~/.vibelens/
      │ pending.json               │ pending.json
      └────────────────────────────┘
 ```

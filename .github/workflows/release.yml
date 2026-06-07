@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_mcp:
+        description: "Publish the MCP package to npm and the MCP Registry"
+        required: true
+        type: boolean
+        default: true
+      publish_extension:
+        description: "Publish the extension to VS Code Marketplace and Open VSX"
+        required: true
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test MCP
+        run: pnpm --filter vibelens-mcp test
+
+      - name: Test extension
+        run: pnpm --filter vibelens-extension test
+
+      - name: Build all packages
+        run: pnpm run build
+
+      - name: Package extension
+        run: pnpm --filter vibelens-extension package
+
+      - name: Validate MCP Registry metadata
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher validate server.json
+
+  publish-mcp:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.publish_mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build MCP
+        run: pnpm --filter vibelens-mcp build
+
+      - name: Publish MCP package to npm
+        working-directory: packages/mcp
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+
+      - name: Authenticate to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish MCP metadata to registry
+        run: ./mcp-publisher publish
+
+  publish-extension:
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.publish_extension
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Package extension
+        working-directory: packages/extension
+        run: |
+          pnpm run package
+          VSIX_PATH="$(node -e "const p = require('./package.json'); console.log(p.name + '-' + p.version + '.vsix')")"
+          echo "VSIX_PATH=$VSIX_PATH" >> "$GITHUB_ENV"
+
+      - name: Publish to VS Code Marketplace
+        working-directory: packages/extension
+        run: npx @vscode/vsce publish --packagePath "$VSIX_PATH" -p "$VSCE_PAT"
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        working-directory: packages/extension
+        run: npx ovsx --pat "$OVSX_PAT" publish "$VSIX_PATH"
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}

@@ -6,10 +6,17 @@
   "workspaces": [
     "packages/*"
   ],
+  "packageManager": "pnpm@10.25.0",
   "scripts": {
     "build": "pnpm --filter \"./packages/*\" build",
     "build:mcp": "pnpm --filter vibelens-mcp build",
     "build:extension": "pnpm --filter vibelens-extension compile"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
   },
   "author": "Kevin Lewicki <kevin@flexways.com>",
   "license": "MIT",
@@ -18,6 +25,6 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/klewicki7/VibeLens.git"
+    "url": "git+https://github.com/klewicki7/VibeLens.git"
   }
 }

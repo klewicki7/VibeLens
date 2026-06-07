@@ -3,21 +3,34 @@
   "displayName": "VibeLens",
   "description": "VibeLens — AI peer review for your code changes",
   "version": "0.1.0",
-  "publisher": "VladTansky",
+  "publisher": "kevcode",
   "license": "MIT",
   "author": "Kevin Lewicki <kevin@flexways.com>",
   "contributors": [
     "Vlad Tansky (original explain-changes-mcp)"
   ],
+  "homepage": "https://github.com/klewicki7/VibeLens#readme",
+  "bugs": {
+    "url": "https://github.com/klewicki7/VibeLens/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/klewicki7/VibeLens.git",
+    "url": "git+https://github.com/klewicki7/VibeLens.git",
     "directory": "packages/extension"
   },
+  "keywords": [
+    "ai",
+    "code-review",
+    "cursor",
+    "diff",
+    "mcp",
+    "vibelens"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
   "categories": [
+    "Visualization",
     "Other"
   ],
   "activationEvents": [
@@ -42,7 +55,9 @@
     "dev": "node dev/server.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies"
+    "package": "npx @vscode/vsce package --allow-missing-repository --no-dependencies",
+    "publish:vscode": "npx @vscode/vsce publish",
+    "publish:open-vsx": "npx ovsx publish"
   },
   "dependencies": {
     "diff2html": "^3.4.56",

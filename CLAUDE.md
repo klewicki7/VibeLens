@@ -32,8 +32,8 @@ npm run start            # Run MCP server via stdio
 MCP Server                    VS Code Extension
      │                              │
      │ writes JSON to               │ watches
-     │ ~/.explain-changes/          │ ~/.explain-changes/
-     │ pending.json                 │ pending.json
+     │ ~/.vibelens/                 │ ~/.vibelens/
+     │ review data                  │ review data
      │                              │
      └──────────────────────────────┘
                                     │
@@ -44,7 +44,7 @@ MCP Server                    VS Code Extension
 
 ### MCP Package (`packages/mcp`)
 
-- `src/index.ts` - MCP server entry point. Registers tool and prompt, writes JSON to `~/.explain-changes/pending.json`
+- `src/index.ts` - MCP server entry point. Registers tool and prompt, writes review data to `~/.vibelens/`
 
 ### Extension Package (`packages/extension`)
 
@@ -78,7 +78,8 @@ The extension receives button clicks via `postMessage`, then calls `vscode.env.o
 ### Publishing
 
 - **Extension**: Create `.vsix` with `npm run package`, upload to GitHub Releases
-- **MCP**: Published to npm as `explain-changes-mcp`
+- **Extension**: Published as `kevcode.vibelens-extension` to VS Code Marketplace and Open VSX
+- **MCP**: Published to npm as `vibelens-mcp` and registered as `io.github.klewicki7/vibelens-mcp`
 
 ## VibeLens Enforcement Rule
 

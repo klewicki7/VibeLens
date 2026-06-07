@@ -6,8 +6,8 @@ import { detectProject } from "../../project.js";
 
 describe("detectProject", () => {
   it("detects the repo root and name from a git repository", () => {
-    // Run against the actual repo root
-    const repoRoot = "/Users/kevin/explain-changes-mcp";
+    // Run against the package checkout; detectProject should walk up to the repo root.
+    const repoRoot = process.cwd();
     const info = detectProject(repoRoot);
 
     expect(info.root).not.toBeNull();
@@ -16,10 +16,10 @@ describe("detectProject", () => {
   });
 
   it("returns a sensible name derived from the remote URL", () => {
-    const repoRoot = "/Users/kevin/explain-changes-mcp";
+    const repoRoot = process.cwd();
     const info = detectProject(repoRoot);
 
-    // The remote URL for this repo contains "VibeLens" or "explain-changes-mcp"
+    // The remote URL for this repo contains the public project name.
     if (info.remote !== null) {
       expect(info.name).toBeTruthy();
       // Should be derived from the last segment of the remote URL (without .git)

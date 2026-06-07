@@ -1,4 +1,4 @@
-# Explain Changes Extension
+# VibeLens Extension
 
 VS Code / Cursor extension that displays AI-generated code explanations with inline annotations.
 
@@ -14,19 +14,24 @@ VS Code / Cursor extension that displays AI-generated code explanations with inl
 
 ### From VSIX
 
-1. Download `.vsix` from [releases](https://github.com/vltansky/explain-changes-mcp/releases)
+1. Download `.vsix` from [releases](https://github.com/klewicki7/VibeLens/releases)
 2. In VS Code/Cursor: Extensions → `...` → "Install from VSIX..."
 3. Reload the window
 
 The extension automatically adds the MCP server to your Cursor/Windsurf configuration.
 
+### From Marketplace
+
+- VS Code extension ID: `kevcode.vibelens-extension`
+- Cursor/Open VSX extension ID: `kevcode.vibelens-extension`
+
 ### From Source
 
 ```bash
 cd packages/extension
-npm install
-npm run build
-npm run package
+pnpm install
+pnpm run build
+pnpm run package
 ```
 
 Then install the generated `.vsix` file.
@@ -35,19 +40,19 @@ Then install the generated `.vsix` file.
 
 Once installed, the extension:
 
-1. **Watches** `~/.explain-changes/pending.json` for new explanations
+1. **Watches** `~/.vibelens/pending.json` for new explanations
 2. **Opens a webview panel** when the MCP server writes new data
 3. **Displays the diff** with syntax highlighting and annotations
 
 ### Commands
 
-- `Explain Changes: Show Panel` — Manually open the panel with the last explanation
+- `VibeLens: Show Panel` — Manually open the panel with the last explanation
 
 ### Deep Links
 
 The extension registers a URI handler:
-- `cursor://explain-changes.explain-changes-extension/show`
-- `vscode://explain-changes.explain-changes-extension/show`
+- `cursor://kevcode.vibelens-extension/show`
+- `vscode://kevcode.vibelens-extension/show`
 
 ## How It Works
 
@@ -55,7 +60,7 @@ The extension registers a URI handler:
 MCP Server                    Extension
      │                            │
      │ writes to                  │ watches
-     │ ~/.explain-changes/        │ ~/.explain-changes/
+     │ ~/.vibelens/               │ ~/.vibelens/
      │ pending.json               │ pending.json
      └────────────────────────────┘
                                   │
@@ -78,13 +83,13 @@ The extension watches this file and opens a webview when it changes.
 
 ```bash
 # Build
-npm run build
+pnpm run build
 
 # Watch mode
-npm run watch
+pnpm run watch
 
 # Package as .vsix
-npm run package
+pnpm run package
 ```
 
 ## Configuration

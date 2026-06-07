@@ -338,9 +338,9 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(showPanelCommand);
 
   // Register URI handler for deep links
-  // Works with: vscode://VladTansky.vibelens-extension/show
-  //         or: cursor://VladTansky.vibelens-extension/show
-  //         or: windsurf://VladTansky.vibelens-extension/show
+  // Works with: vscode://kevcode.vibelens-extension/show
+  //         or: cursor://kevcode.vibelens-extension/show
+  //         or: windsurf://kevcode.vibelens-extension/show
   const uriHandler = vscode.window.registerUriHandler({
     async handleUri(uri: vscode.Uri) {
       if (uri.path === "/show" || uri.path === "") {
