@@ -13,22 +13,24 @@ import { mergeZedMcp } from "./config/zedMcp";
 import { mergeCodexToml } from "./config/codexToml";
 import { getMcpTargets } from "./config/mcpTargets";
 import { resolveMcpCommand } from "./config/mcpCommand";
-import { mergeClaudeSettings } from "./config/claudeSettings";
-import { mergeCursorHooks } from "./config/hooksConfig";
+import { stripVibelensPostToolUse } from "./config/claudeSettings";
+import { stripVibelensStop } from "./config/hooksConfig";
 import { mergeTextSection } from "./config/textSection";
 
 const WATCH_DIR = path.join(os.homedir(), ".vibelens");
 const WATCH_FILE = path.join(WATCH_DIR, "pending.json");
 const DB_PATH = path.join(WATCH_DIR, "vibelens.db");
 
-// Bundled Node hook is installed here and referenced by both the Claude Code
-// PostToolUse hook and the Cursor stop hook (spec R11.1 / R12.1).
-const HOOK_INSTALL_PATH = path.join(WATCH_DIR, "hooks", "vibelens-hook.js");
+// Legacy directory where older versions installed the bundled Node hook. VibeLens
+// no longer installs editor hooks; activation deletes this on cleanup.
+const LEGACY_HOOK_DIR = path.join(WATCH_DIR, "hooks");
 
-// Canonical fallback rule injected into CLAUDE.md / .cursor/rules (spec R15.1).
+// Canonical rule injected into CLAUDE.md / AGENTS.md / .cursor/rules. This is the
+// single source of truth for the agent nudge: the tool fires only when the agent
+// actually changed code, never on read-only questions or an empty diff.
 const VIBELENS_RULE_BODY = [
   "## VibeLens — Auto-explain changes",
-  "After modifying files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Do not commit as part of this.",
+  "After you modify files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Only call it when you actually changed code — skip it for questions, reviews, or when `git diff HEAD` is empty. Do not commit as part of this.",
 ].join("\n");
 
 let reviewReader: ReviewReader | null = null;
@@ -268,30 +270,32 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  // (2) Cursor hooks: install the hook asset FIRST, then register a managed
-  // `stop` entry pointing at it in ~/.cursor/hooks.json (R12).
+  // (2) Legacy hook cleanup: VibeLens no longer installs editor hooks. Older
+  // versions registered a Cursor `stop` hook and a Claude Code PostToolUse hook
+  // that fired on EVERY turn — invasive, since they nudged even when the agent
+  // only answered a question. Strip those managed entries and delete the bundled
+  // hook script. Each strip is idempotent (a config with no managed entry is a
+  // noop) and never creates a file, so this is safe to run on every activation.
   const hooksConfigPath = adapter.getHooksConfigPath();
   if (hooksConfigPath) {
-    guardedInstall("Cursor hooks", () => {
-      installAsset(context, "hooks/vibelens-hook.js", HOOK_INSTALL_PATH);
-      applyJsonMerge("Cursor hooks", hooksConfigPath, (raw) =>
-        mergeCursorHooks(raw, { command: `node ${HOOK_INSTALL_PATH}` })
-      );
+    guardedInstall("Cursor hook cleanup", () => {
+      applyJsonMerge("Cursor hooks", hooksConfigPath, (raw) => stripVibelensStop(raw));
     });
   }
-
-  // (3) Claude Code settings + skill: install the hook asset FIRST, register a
-  // managed PostToolUse hook in ~/.claude/settings.json (R11), then install the
-  // skill file (R14.1 — content lands in PR3, install is tolerant of absence).
   const claudeSettingsPath = adapter.getClaudeSettingsPath();
   if (claudeSettingsPath) {
-    guardedInstall("Claude Code settings", () => {
-      installAsset(context, "hooks/vibelens-hook.js", HOOK_INSTALL_PATH);
+    guardedInstall("Claude Code hook cleanup", () => {
       applyJsonMerge("Claude Code settings", claudeSettingsPath, (raw) =>
-        mergeClaudeSettings(raw, { command: `node ${HOOK_INSTALL_PATH}` })
+        stripVibelensPostToolUse(raw)
       );
     });
   }
+  guardedInstall("Legacy hook script cleanup", () => {
+    fs.rmSync(LEGACY_HOOK_DIR, { recursive: true, force: true });
+  });
+
+  // (3) Claude Code skill: agent guidance teaching the show_diff_explanation
+  // signature. Version-stamped install, tolerant of a missing bundled asset.
   const skillInstallPath = adapter.getSkillInstallPath();
   if (skillInstallPath) {
     guardedInstall("Claude Code skill", () => {
@@ -299,18 +303,21 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
 
-  // (4) Fallback rule files: marker-delimited block in the workspace CLAUDE.md,
-  // and the .cursor/rules/vibelens.mdc template under Cursor (R14.2, R15).
-  // workspaceRoot was resolved at the top of activate() for the MCP fan-out.
+  // (4) Rule files: the marker-delimited block in the workspace CLAUDE.md and
+  // AGENTS.md (universal agent nudge), plus the .cursor/rules/vibelens.mdc
+  // template under Cursor. workspaceRoot was resolved at the top of activate()
+  // for the MCP fan-out. AGENTS.md is auto-written alongside CLAUDE.md so
+  // non-Claude agents (Codex, etc.) get the same nudge.
   if (workspaceRoot) {
     guardedInstall("CLAUDE.md rule", () => {
       applyTextSection(path.join(workspaceRoot, "CLAUDE.md"), VIBELENS_RULE_BODY);
     });
+    guardedInstall("AGENTS.md rule", () => {
+      applyTextSection(path.join(workspaceRoot, "AGENTS.md"), VIBELENS_RULE_BODY);
+    });
     const cursorRulesPath = adapter.getCursorRulesPath(workspaceRoot);
     if (cursorRulesPath) {
       guardedInstall("Cursor rule", () => {
-        // The .mdc content (frontmatter template) lands in PR3; tolerant of
-        // absence today.
         installAsset(context, "rules/vibelens.mdc", cursorRulesPath);
       });
     }

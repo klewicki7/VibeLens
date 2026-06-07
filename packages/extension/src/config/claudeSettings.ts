@@ -1,33 +1,20 @@
-// Pure Claude Code settings.json config-merge logic (design Decision B, spec R11).
+// Pure cleanup logic for Claude Code settings.json.
 //
-// Mirrors mergeMcpConfig: read-parse-or-ABORT (never reset a malformed file),
-// scoped mutation that only ever touches the managed PostToolUse group, and a
-// non-destructive `_vibelensManaged: true` sentinel that marks the group we own
-// (powering the find-and-replace + idempotency check). String/JSON in,
-// discriminated-union out. All fs reads/writes + showErrorMessage live in
-// extension.ts.
+// VibeLens no longer installs a PostToolUse hook — the agent is nudged purely
+// via skills/rules, so the tool only fires when the agent actually changed code.
+// This module strips the legacy `_vibelensManaged` PostToolUse group that older
+// versions registered. It keeps the merge module's safety contract: read-parse-
+// or-ABORT (never reset a malformed file), scoped mutation that only ever
+// touches the managed group, and an idempotent noop when there is nothing of
+// ours to remove. String/JSON in, discriminated-union out. All fs reads/writes +
+// showErrorMessage live in extension.ts.
 //
 // NO `vscode` import here.
 
 const MANAGED_SENTINEL = "_vibelensManaged" as const;
 
-/** The PostToolUse matcher VibeLens owns (edit-like tools). */
+/** The PostToolUse matcher VibeLens used to own (edit-like tools). */
 export const CC_MATCHER = "Edit|Write|MultiEdit" as const;
-
-/** Default hook timeout (seconds) when the caller does not supply one. */
-const DEFAULT_TIMEOUT = 30 as const;
-
-export interface PostToolUseHookEntry {
-  type: "command";
-  command: string;
-  timeout: number;
-}
-
-export interface ClaudeHookInput {
-  command: string;
-  /** Defaults to 30 when omitted (spec R11.1). */
-  timeout?: number;
-}
 
 export interface MergeJsonResult {
   json: string;
@@ -43,95 +30,69 @@ export interface MergeNoopResult {
 
 export type MergeResult = MergeJsonResult | MergeErrorResult | MergeNoopResult;
 
-interface ManagedPostToolUseGroup {
-  matcher: typeof CC_MATCHER;
-  readonly _vibelensManaged: true;
-  hooks: PostToolUseHookEntry[];
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isManagedGroup(value: unknown): value is Record<string, unknown> {
-  return (
-    isPlainObject(value) &&
-    value.matcher === CC_MATCHER &&
-    value[MANAGED_SENTINEL] === true
-  );
+function isManagedGroup(value: unknown): boolean {
+  return isPlainObject(value) && value[MANAGED_SENTINEL] === true;
 }
 
 /**
- * Merges the VibeLens PostToolUse hook group into a Claude Code settings.json string.
+ * Removes the legacy VibeLens PostToolUse hook group from a Claude Code
+ * settings.json string (one-time migration off editor hooks).
  *
  * @param existingRaw raw file contents, or `null` when the file is absent.
- * @param entry the managed command + optional timeout (default 30).
  * @returns
+ *  - `{ noop: true }` when the file is absent/empty or carries no managed group
+ *    (nothing to remove — never creates or rewrites a file).
  *  - `{ error }` when `existingRaw` is non-null but not a valid JSON object
- *    (caller must surface it and ABORT the write — spec R11-S5).
- *  - `{ noop: true }` when the managed group already matches (R11-S3).
- *  - `{ json }` (pretty-printed, 2-space) with ONLY the managed PostToolUse
- *    group added/updated and all other events/groups/keys preserved
- *    (R11-S1/S2/S4).
+ *    (caller must surface it and ABORT the write — no-clobber).
+ *  - `{ json }` (pretty-printed, 2-space) with ONLY the managed group removed;
+ *    an emptied `PostToolUse` array and an emptied `hooks` object are pruned, and
+ *    every other event/group/key is preserved verbatim.
  */
-export function mergeClaudeSettings(
-  existingRaw: string | null,
-  entry: ClaudeHookInput
-): MergeResult {
-  let config: Record<string, unknown> = {};
-
-  if (existingRaw !== null && existingRaw.trim() !== "") {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(existingRaw);
-    } catch {
-      // Read-parse-or-ABORT: never silently reset a malformed file.
-      return { error: "Existing Claude settings is not valid JSON" };
-    }
-    if (!isPlainObject(parsed)) {
-      return { error: "Existing Claude settings is not a JSON object" };
-    }
-    config = parsed;
-  }
-
-  const existingHooks = isPlainObject(config.hooks) ? config.hooks : {};
-  const existingPostToolUse = Array.isArray(existingHooks.PostToolUse)
-    ? (existingHooks.PostToolUse as unknown[])
-    : [];
-
-  const timeout = entry.timeout ?? DEFAULT_TIMEOUT;
-  const desired: ManagedPostToolUseGroup = {
-    matcher: CC_MATCHER,
-    [MANAGED_SENTINEL]: true,
-    hooks: [{ type: "command", command: entry.command, timeout }],
-  };
-
-  const existingManaged = existingPostToolUse.find(isManagedGroup);
-
-  // Idempotency (R11-S3): the managed group already matches exactly.
-  if (existingManaged && groupMatches(existingManaged, desired)) {
+export function stripVibelensPostToolUse(existingRaw: string | null): MergeResult {
+  if (existingRaw === null || existingRaw.trim() === "") {
     return { noop: true };
   }
 
-  // Scoped mutation (R11-S2/S4): keep every non-managed group verbatim and
-  // upsert exactly one managed group.
-  const otherGroups = existingPostToolUse.filter((g) => !isManagedGroup(g));
-  const mergedPostToolUse = [...otherGroups, desired];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(existingRaw);
+  } catch {
+    return { error: "Existing Claude settings is not valid JSON" };
+  }
+  if (!isPlainObject(parsed)) {
+    return { error: "Existing Claude settings is not a JSON object" };
+  }
+  const config = parsed;
 
-  const merged: Record<string, unknown> = {
-    ...config,
-    hooks: {
-      ...existingHooks,
-      PostToolUse: mergedPostToolUse,
-    },
-  };
+  const hooks = isPlainObject(config.hooks) ? config.hooks : null;
+  const postToolUse = hooks && Array.isArray(hooks.PostToolUse)
+    ? (hooks.PostToolUse as unknown[])
+    : null;
+
+  // Nothing of ours to remove → idempotent noop, file untouched.
+  if (!postToolUse || !postToolUse.some(isManagedGroup)) {
+    return { noop: true };
+  }
+
+  const otherGroups = postToolUse.filter((g) => !isManagedGroup(g));
+
+  const nextHooks: Record<string, unknown> = { ...hooks };
+  if (otherGroups.length > 0) {
+    nextHooks.PostToolUse = otherGroups;
+  } else {
+    delete nextHooks.PostToolUse;
+  }
+
+  const merged: Record<string, unknown> = { ...config };
+  if (Object.keys(nextHooks).length > 0) {
+    merged.hooks = nextHooks;
+  } else {
+    delete merged.hooks;
+  }
 
   return { json: JSON.stringify(merged, null, 2) };
-}
-
-function groupMatches(
-  current: Record<string, unknown>,
-  desired: ManagedPostToolUseGroup
-): boolean {
-  return JSON.stringify(current) === JSON.stringify(desired);
 }

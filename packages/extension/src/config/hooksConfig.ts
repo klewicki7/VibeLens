@@ -1,26 +1,17 @@
-// Pure Cursor hooks.json config-merge logic (design Decision B, spec R12).
+// Pure cleanup logic for Cursor hooks.json.
 //
-// Mirrors mergeMcpConfig / mergeClaudeSettings: read-parse-or-ABORT (never reset
-// a malformed file), default `{ version: 1 }` when absent, scoped mutation that
-// only ever touches the managed `stop` entry, and a `_vibelensManaged: true`
-// sentinel powering find-and-replace + idempotency. String/JSON in,
-// discriminated-union out. All fs + showErrorMessage live in extension.ts.
+// VibeLens no longer installs a Cursor `stop` hook — the agent is nudged purely
+// via skills/rules, so the tool only fires when the agent actually changed code.
+// This module strips the legacy `_vibelensManaged` `stop` entry that older
+// versions registered. It keeps the merge module's safety contract: read-parse-
+// or-ABORT (never reset a malformed file), scoped mutation that only ever
+// touches the managed entry, and an idempotent noop when there is nothing of
+// ours to remove. String/JSON in, discriminated-union out. All fs +
+// showErrorMessage live in extension.ts.
 //
 // NO `vscode` import here.
 
 const MANAGED_SENTINEL = "_vibelensManaged" as const;
-
-/** Default hooks.json schema version when the file is absent. */
-const DEFAULT_VERSION = 1 as const;
-
-export interface CursorHookEntry {
-  command: string;
-  readonly _vibelensManaged: true;
-}
-
-export interface CursorHookInput {
-  command: string;
-}
 
 export interface MergeJsonResult {
   json: string;
@@ -40,74 +31,63 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isManagedEntry(value: unknown): value is Record<string, unknown> {
+function isManagedEntry(value: unknown): boolean {
   return isPlainObject(value) && value[MANAGED_SENTINEL] === true;
 }
 
 /**
- * Merges the VibeLens `stop` hook entry into a Cursor hooks.json string.
+ * Removes the legacy VibeLens `stop` hook entry from a Cursor hooks.json string
+ * (one-time migration off editor hooks).
  *
  * @param existingRaw raw file contents, or `null` when the file is absent.
- * @param entry the managed command to run on `stop`.
  * @returns
+ *  - `{ noop: true }` when the file is absent/empty or carries no managed entry
+ *    (nothing to remove — never creates or rewrites a file).
  *  - `{ error }` when `existingRaw` is non-null but not a valid JSON object
- *    (caller must surface it and ABORT — spec R12-S5).
- *  - `{ noop: true }` when the managed `stop` entry already matches (R12-S3).
- *  - `{ json }` (pretty-printed, 2-space) preserving `version`, other hook
- *    events and other `stop` entries, upserting exactly one managed entry
- *    (R12-S1/S2/S4).
+ *    (caller must surface it and ABORT — no-clobber).
+ *  - `{ json }` (pretty-printed, 2-space) with ONLY the managed entry removed;
+ *    an emptied `stop` array and an emptied `hooks` object are pruned, and
+ *    `version` plus every other hook event/entry is preserved verbatim.
  */
-export function mergeCursorHooks(
-  existingRaw: string | null,
-  entry: CursorHookInput
-): MergeResult {
-  let config: Record<string, unknown> = { version: DEFAULT_VERSION };
-
-  if (existingRaw !== null && existingRaw.trim() !== "") {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(existingRaw);
-    } catch {
-      return { error: "Existing Cursor hooks config is not valid JSON" };
-    }
-    if (!isPlainObject(parsed)) {
-      return { error: "Existing Cursor hooks config is not a JSON object" };
-    }
-    config = parsed;
-  }
-
-  const existingHooks = isPlainObject(config.hooks) ? config.hooks : {};
-  const existingStop = Array.isArray(existingHooks.stop)
-    ? (existingHooks.stop as unknown[])
-    : [];
-
-  const desired: CursorHookEntry = {
-    command: entry.command,
-    [MANAGED_SENTINEL]: true,
-  };
-
-  const existingManaged = existingStop.find(isManagedEntry);
-
-  // Idempotency (R12-S3): the managed stop entry already matches exactly.
-  if (existingManaged && JSON.stringify(existingManaged) === JSON.stringify(desired)) {
+export function stripVibelensStop(existingRaw: string | null): MergeResult {
+  if (existingRaw === null || existingRaw.trim() === "") {
     return { noop: true };
   }
 
-  // Scoped mutation (R12-S2/S4): keep every non-managed stop entry verbatim and
-  // upsert exactly one managed entry.
-  const otherStop = existingStop.filter((e) => !isManagedEntry(e));
-  const mergedStop = [...otherStop, desired];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(existingRaw);
+  } catch {
+    return { error: "Existing Cursor hooks config is not valid JSON" };
+  }
+  if (!isPlainObject(parsed)) {
+    return { error: "Existing Cursor hooks config is not a JSON object" };
+  }
+  const config = parsed;
 
-  const version = "version" in config ? config.version : DEFAULT_VERSION;
+  const hooks = isPlainObject(config.hooks) ? config.hooks : null;
+  const stop = hooks && Array.isArray(hooks.stop) ? (hooks.stop as unknown[]) : null;
 
-  const merged: Record<string, unknown> = {
-    ...config,
-    version,
-    hooks: {
-      ...existingHooks,
-      stop: mergedStop,
-    },
-  };
+  // Nothing of ours to remove → idempotent noop, file untouched.
+  if (!stop || !stop.some(isManagedEntry)) {
+    return { noop: true };
+  }
+
+  const otherStop = stop.filter((e) => !isManagedEntry(e));
+
+  const nextHooks: Record<string, unknown> = { ...hooks };
+  if (otherStop.length > 0) {
+    nextHooks.stop = otherStop;
+  } else {
+    delete nextHooks.stop;
+  }
+
+  const merged: Record<string, unknown> = { ...config };
+  if (Object.keys(nextHooks).length > 0) {
+    merged.hooks = nextHooks;
+  } else {
+    delete merged.hooks;
+  }
 
   return { json: JSON.stringify(merged, null, 2) };
 }

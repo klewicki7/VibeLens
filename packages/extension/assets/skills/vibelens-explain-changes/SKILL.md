@@ -1,25 +1,27 @@
 ---
 name: vibelens-explain-changes
-description: "Trigger: after editing files, after completing code changes, when a VibeLens hook asks. Call the show_diff_explanation MCP tool to auto-explain the git diff."
+description: "Trigger: after you edit files / complete code changes in a git repo. Call the show_diff_explanation MCP tool to auto-explain the git diff. Do NOT trigger for read-only questions or when nothing changed."
 license: MIT
 metadata:
   author: kevin
-  version: "1.0"
-  vibelens-asset-version: "1"
+  version: "2.0"
+  vibelens-asset-version: "2"
 ---
 
-<!-- vibelens-asset-version: 1 -->
+<!-- vibelens-asset-version: 2 -->
 
 ## Activation Contract
 
-Call `show_diff_explanation` after you finish editing files in a git repository, or when a VibeLens hook injects an instruction. Batch ALL edits from one task into a SINGLE call at a logical stopping point — not once per file.
+Call `show_diff_explanation` ONLY after you have actually edited files in a git repository and reached a logical stopping point. Batch ALL edits from one task into a SINGLE call — not once per file.
+
+Do NOT call it for read-only questions, code reviews, explanations, or any turn where you did not change code. If `git diff HEAD` is empty, do nothing.
 
 ## Hard Rules
 
 - Get the diff with `git diff HEAD`. For the most recent commit use `git diff HEAD~1 HEAD`. Pass the raw unified diff verbatim as the `diff` argument.
 - Always include `title` (short, what changed) and `diff`. Add `summary` (1-3 sentences) and `annotations` (`{ file, line?, explanation }`) when the change is non-trivial.
 - Set `workspacePath` to the repository root and `editor` to `"cursor"` or `"vscode"`.
-- Do NOT commit on the user's behalf. Do NOT call again for the same unchanged diff (the hook already enforces a per-session loop guard).
+- Do NOT commit on the user's behalf. Do NOT call again for the same unchanged diff.
 
 ## Execution Steps
 

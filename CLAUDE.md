@@ -80,20 +80,24 @@ The extension receives button clicks via `postMessage`, then calls `vscode.env.o
 - **Extension**: Create `.vsix` with `npm run package`, upload to GitHub Releases
 - **MCP**: Published to npm as `explain-changes-mcp`
 
-## VibeLens Enforcement Rule (opt-in)
+## VibeLens Enforcement Rule
 
-The VibeLens extension auto-injects the marker-delimited block below into a
-project's `CLAUDE.md` at activation. `AGENTS.md` is NOT auto-written — to opt a
-non-Claude project's agents into the same behavior, copy this block verbatim:
+VibeLens nudges the agent via skills/rules ONLY — it does NOT install editor
+hooks. The agent decides to call `show_diff_explanation` when it actually changed
+code, so the tool never fires on read-only questions or an empty diff. At
+activation the extension auto-injects the marker-delimited block below into both
+the project's `CLAUDE.md` and `AGENTS.md`:
 
 ```markdown
 <!-- vibelens:hooks -->
 ## VibeLens — Auto-explain changes
-After modifying files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Do not commit as part of this.
+After you modify files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Only call it when you actually changed code — skip it for questions, reviews, or when `git diff HEAD` is empty. Do not commit as part of this.
 <!-- /vibelens:hooks -->
 ```
 
 The text between the markers is the single source of truth (`VIBELENS_RULE_BODY`
 in `packages/extension/src/extension.ts`). Re-running activation replaces only
-the content between the markers; surrounding prose is preserved. See
-`docs/ENFORCEMENT.md` for how the full enforcement chain works.
+the content between the markers; surrounding prose is preserved. Older versions
+also installed Claude Code `PostToolUse` / Cursor `stop` hooks; activation now
+strips those legacy managed entries. See `docs/ENFORCEMENT.md` for the full
+chain.

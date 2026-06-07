@@ -26,12 +26,18 @@ export interface IEditorAdapter {
   buildDeeplink(prompt: string): string | null;
   readonly logo: string;
 
-  // --- Slice-4 enforcement paths (spec R17). Each returns `null` when the
-  // location does not apply to this editor, so the activate() composition root
-  // simply skips null paths. Claude Code rides the VS Code family (appName).
-  /** Cursor stop-hook config (`~/.cursor/hooks.json`); null for non-Cursor. */
+  // --- Enforcement paths. Each returns `null` when the location does not apply
+  // to this editor, so the activate() composition root simply skips null paths.
+  // Claude Code rides the VS Code family (appName).
+  /**
+   * Cursor hooks config (`~/.cursor/hooks.json`); null for non-Cursor. VibeLens
+   * no longer installs hooks — this locates the file for legacy-hook cleanup.
+   */
   getHooksConfigPath(): string | null;
-  /** Claude Code settings (`~/.claude/settings.json`); null off the CC family. */
+  /**
+   * Claude Code settings (`~/.claude/settings.json`); null off the CC family.
+   * Used to locate the file for legacy-hook cleanup, not to install hooks.
+   */
   getClaudeSettingsPath(): string | null;
   /** Claude Code skill file (`~/.claude/skills/.../SKILL.md`); null otherwise. */
   getSkillInstallPath(): string | null;

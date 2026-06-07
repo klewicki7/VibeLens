@@ -3,8 +3,8 @@ description: VibeLens auto-explain changes
 alwaysApply: true
 ---
 
-<!-- vibelens-asset-version: 1 -->
+<!-- vibelens-asset-version: 2 -->
 <!-- vibelens:hooks -->
 ## VibeLens — Auto-explain changes
-After modifying files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Do not commit as part of this.
+After you modify files in this repo, call the `show_diff_explanation` MCP tool with the output of `git diff HEAD` and a brief per-file analysis (what changed and why). Batch all edits from one task into a single call. Only call it when you actually changed code — skip it for questions, reviews, or when `git diff HEAD` is empty. Do not commit as part of this.
 <!-- /vibelens:hooks -->
